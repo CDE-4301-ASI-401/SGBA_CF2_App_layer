@@ -26,6 +26,8 @@
 #include "stabilizer.h"
 
 #include "wallfollowing_multiranger_onboard.h"
+#include "jingyen_sus_algo.h"
+#include "matthew_algo.h"
 #include "wallfollowing_with_avoid.h"
 #include "SGBA.h"
 #include "usec_time.h"
@@ -53,8 +55,10 @@ static bool taken_off = false;
 //1= wall_following: Go forward and follow walls with the multiranger 
 //2=wall following with avoid: This also follows walls but will move away if another crazyflie with an lower ID is coming close, 
 //3=SGBA: The SGBA method that incorperates the above methods.
+//4=Jing Yen's algo
+//5=Matthew's algo
 //        NOTE: the switching between outbound and inbound has not been implemented yet
-#define METHOD 3
+#define METHOD 4
 
 
 void p2pcallbackHandler(P2PPacket *p);
@@ -218,9 +222,9 @@ void appMain(void *param)
   p_reply.size=5;
   //DEBUG_PRINT("appMain");
 
-#if METHOD!=1
+//#if METHOD!=1
   static uint64_t radioSendBroadcastTime=0;
-#endif
+//#endif
 
   static uint64_t takeoffdelaytime = 0;
 
@@ -444,6 +448,14 @@ void appMain(void *param)
         // wall following state machine
         state = wall_follower(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, front_range, right_range, heading_rad, 1);
 #endif
+#if METHOD == 4 //Jing Yen's algo
+        // wall following state machine
+        state = wall_follower2(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, front_range, right_range, heading_rad, 1);
+#endif
+#if METHOD == 5 //Matthew's algo
+        // wall following state machine
+        state = wall_follower3(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, front_range, right_range, heading_rad, 1);
+#endif
 #if METHOD ==2 //WALL_FOLLOWER_AND_AVOID
         // DEBUG_PRINT("state_machine: id_inter_closest = %i\n", id_inter_closest);
         // DEBUG_PRINT("state_machine: my_id = %i\n", my_id);
@@ -520,7 +532,13 @@ bool priority = true;
 
 
 #if METHOD==1 // wall following
-          wall_follower_init(drone_dist_from_wall, drone_speed, 1);
+          wall_follower_init(drone_dist_from_wall_1, drone_speed, 1);
+#endif
+#if METHOD==4 // Jing Yen's algo
+          wall_follower2_init(drone_dist_from_wall_1, drone_speed, 1);
+#endif
+#if METHOD==5 // Matthew's algo
+          wall_follower3_init(drone_dist_from_wall_1, drone_speed, 1);
 #endif
 #if METHOD==2 // wallfollowing with avoid
           if (my_id%2==1)
@@ -684,7 +702,7 @@ bool priority = true;
       }
     }
 
-#if METHOD != 1
+//#if METHOD != 1
     if (height > 0.25f && up_range > 0.2f) {
       // DEBUG_PRINT("height: %.2f\n", (double)height);
       // DEBUG_PRINT("up range: %.2f\n", (double)up_range);
@@ -701,7 +719,7 @@ bool priority = true;
         // DEBUG_PRINT("state_machine: Broadcasting RSSI\n");
     }
 
-#endif
+//#endif
     commanderSetSetpoint(&setpoint_BG, STATE_MACHINE_COMMANDER_PRI);
 
   }
