@@ -1,10 +1,3 @@
-/*
- * wall_follower_multi_ranger_onboard.c
- *
- *  Created on: Aug 7, 2018
- *      Author: knmcguire
- */
-
 #include "matthew_algo.h"
 #define __USE_MISC
 #include <math.h>
@@ -12,346 +5,122 @@
 #include "debug.h"
 
 // variables
-static float ref_distance_from_wall = 0;
+static float ref_distance_from_goal = 0;
 static float max_speed = 0.5;
 static float max_rate = 0.5;
 static float direction = 1;
-static float first_run = false;
+static bool first_run = true;
 static int state = 1;
 static float state_start_time;
+static float H[GRID_SIZE][GRID_SIZE];  // Heuristic map, assuming grid-based environment
+static float G[GRID_SIZE][GRID_SIZE];  // Cost map for the path
+static int grid_x = 0, grid_y = 0;     // Current grid coordinates
+static int goal_x = GRID_GOAL_X, goal_y = GRID_GOAL_Y; // Goal coordinates
 
-
-
-void wall_follower3_init(float new_ref_distance_from_wall, float max_speed_ref, int init_state)
+void lrta_init(float new_ref_distance_from_goal, float max_speed_ref, int init_state)
 {
-  ref_distance_from_wall = new_ref_distance_from_wall;
-  max_speed = max_speed_ref;
-  first_run = true;
-  state = init_state;
+    ref_distance_from_goal = new_ref_distance_from_goal;
+    max_speed = max_speed_ref;
+    first_run = true;
+    state = init_state;
 
+    // Initialize heuristic and cost arrays
+    for (int i = 0; i < GRID_SIZE; i++) {
+        for (int j = 0; j < GRID_SIZE; j++) {
+            H[i][j] = heuristic_estimate(i, j, goal_x, goal_y);  // Estimate heuristic to the goal
+            G[i][j] = INFINITY;  // Initialize the cost as infinite
+        }
+    }
+
+    G[grid_x][grid_y] = 0;  // Starting point cost is 0
 }
 
-// Static helper functions
-static bool logicIsCloseTo(float real_value, float checked_value, float margin)
-{
-  if (real_value > checked_value - margin && real_value < checked_value + margin) {
-    return true;
-  } else {
-    return false;
-  }
+// Heuristic function: Example with Euclidean distance
+float heuristic_estimate(int x, int y, int goal_x, int goal_y) {
+    return sqrt(pow(goal_x - x, 2) + pow(goal_y - y, 2));
 }
 
-static float wraptopi(float number)
-{
-
-  if (number > (float)M_PI) {
-    return (number - (float)(2 * M_PI));
-  } else if (number < (float)(-1 * M_PI)) {
-    return (number + (float)(2 * M_PI));
-  } else {
-    return (number);
-  }
-
+// Static helper function for action cost computation
+float action_cost(float current_cost, float distance_traveled) {
+    return current_cost + distance_traveled;
 }
 
+// State transition based on LRTA* learning
+int lrta_transition(int new_state, float front_range, float side_range) {
+    float t = usecTimestamp() / 1e6;
+    state_start_time = t;
 
-// Static command functions
-static void commandTurn(float *vel_x, float *vel_w, float ref_rate)
-{
-  *vel_x = 0.0;
-  *vel_w = direction * ref_rate;
+    // Update heuristic for current state
+    float min_cost = INFINITY;
+    for (int i = 0; i < 4; i++) {  // Check 4 possible directions (front, back, left, right)
+        int next_x = grid_x + dx[i];  // Change this with your grid directions
+        int next_y = grid_y + dy[i];
+        float cost = action_cost(G[grid_x][grid_y], calculate_distance(next_x, next_y));
 
+        if (cost < min_cost) {
+            min_cost = cost;
+        }
+    }
+
+    // Update heuristic to the minimum found
+    H[grid_x][grid_y] = min_cost;
+
+    // Transition to new state based on sensor readings and heuristic
+    if (front_range < ref_distance_from_goal) {
+        return 3; // Turn to find goal
+    } else if (side_range > ref_distance_from_goal) {
+        return 5; // Move forward along the path
+    }
+
+    return new_state; // Continue in the current state
 }
 
-static void commandAlignCorner(float *vel_y, float *vel_w, float ref_rate, float range,
-                               float wanted_distance_from_corner)
-{
+int lrta_drone_control(float *vel_x, float *vel_y, float *vel_w, float front_range, float side_range, float current_heading, int direction_turn) {
+    direction = direction_turn;
 
-  if (range > wanted_distance_from_corner + drone_dist_from_wall_corner_margin) {
-    *vel_w = direction * ref_rate;
-    *vel_y = 0;
-
-  } else {
-    if (range > wanted_distance_from_corner) {
-      *vel_y = direction * (-1 * max_speed / drone_speed_corner_scale);
-    } else {
-      *vel_y = direction * (max_speed / drone_speed_corner_scale);
-    }
-    *vel_w = 0;
-  }
-
-
-}
-
-static void commandHover(float *vel_x, float *vel_y, float *vel_w)
-{
-  *vel_x = 0.0;
-  *vel_y = 0.0;
-  *vel_w = 0.0;
-}
-
-static void commandForwardAlongWall(float *vel_x, float *vel_y, float range)
-{
-  *vel_x = max_speed;
-  bool check_distance_wall = logicIsCloseTo(ref_distance_from_wall, range, drone_dist_from_wall_forward_margin);
-  *vel_y = 0;
-  if (!check_distance_wall) {
-    if (range > ref_distance_from_wall) {
-      *vel_y = direction * (-1 * max_speed / drone_speed_forward_adjust_scale);
-    } else {
-      *vel_y = direction * (max_speed / drone_speed_forward_adjust_scale);
-    }
-  }
-}
-
-static void commandTurnAroundCornerAndAdjust(float *vel_x, float *vel_y, float *vel_w, float radius, float range)
-{
-  *vel_x = max_speed;
-  *vel_w = direction * (-1 * (*vel_x) / radius);
-  bool check_distance_to_wall = logicIsCloseTo(ref_distance_from_wall, range, drone_dist_from_wall_forward_margin);
-  if (!check_distance_to_wall) {
-    if (range > ref_distance_from_wall) {
-      *vel_y = direction * (-1 * max_speed / drone_speed_corner_scale);
-
+    if (first_run) {
+        first_run = false;
     }
 
-    else {
-      *vel_y = direction * (max_speed / drone_speed_corner_scale);
+    /***********************************************************
+     * State definitions
+     ***********************************************************/
+    // 1 = explore
+    // 2 = hover
+    // 3 = turn_to_find_goal
+    // 4 = move_toward_goal
 
+    /***********************************************************
+     * Handle state transitions based on heuristic
+     ***********************************************************/
+    state = lrta_transition(state, front_range, side_range);
+
+    /***********************************************************
+     * Handle state actions
+     ***********************************************************/
+    float temp_vel_x = 0;
+    float temp_vel_y = 0;
+    float temp_vel_w = 0;
+
+    if (state == 1) {  // Explore
+        DEBUG_PRINT("EXPLORING | ");
+        temp_vel_x = max_speed;
+        temp_vel_w = direction * max_rate;
+    } else if (state == 2) {  // Hover
+        DEBUG_PRINT("HOVERING | ");
+        commandHover(&temp_vel_x, &temp_vel_y, &temp_vel_w);
+    } else if (state == 3) {  // Turn to find goal
+        DEBUG_PRINT("TURNING TO FIND GOAL | ");
+        commandTurn(&temp_vel_x, &temp_vel_w, max_rate);
+    } else if (state == 4) {  // Move toward goal
+        DEBUG_PRINT("MOVING TOWARD GOAL | ");
+        temp_vel_x = max_speed;
+        temp_vel_w = 0;
     }
 
-  }
-}
+    *vel_x = temp_vel_x;
+    *vel_y = temp_vel_y;
+    *vel_w = temp_vel_w;
 
-static void commandTurnAndAdjust(float *vel_y, float *vel_w, float rate, float range)
-{
-  *vel_w = direction * rate;
-  *vel_y = 0;
-
-}
-
-static int transition(int new_state)
-{
-  float t =  usecTimestamp() / 1e6;
-  state_start_time = t;
-  return new_state;
-}
-
-void adjustDistanceWall3(float distance_wall_new)
-{
-  ref_distance_from_wall = distance_wall_new;
-}
-
-int wall_follower3(float *vel_x, float *vel_y, float *vel_w, float front_range, float side_range, float current_heading,
-                  int direction_turn)
-{
-
-
-  direction = direction_turn;
-  static float previous_heading = 0;
-  static float angle = 0;
-  static bool around_corner_go_back = false;
-  float now = usecTimestamp() / 1e6;
-
-  if (first_run) {
-    previous_heading = current_heading;
-    //  around_corner_first_turn = false;
-    around_corner_go_back = false;
-    first_run = false;
-  }
-
-
-  /***********************************************************
-   * State definitions
-   ***********************************************************/
-  // 1 = forward
-  // 2 = hover
-  // 3 = turn_to_find_wall
-  // 4 = turn_to_align_to_wall
-  // 5 = forward along wall
-  // 6 = rotate_around_wall
-  // 7 = rotate_in_corner
-  // 8 = find corner
-
-  /***********************************************************
-  * Handle state transitions
-  ***********************************************************/
-
-  if (state == 1) {     //FORWARD
-    DEBUG_PRINT("FORWARD | ");
-    if (front_range < ref_distance_from_wall + drone_dist_from_wall_to_start_margin) {
-      DEBUG_PRINT("TRANSITION TO TURN_TO_FIND_WALL | ");
-      state = transition(3);
-    }
-  } else if (state == 2) {  // HOVER
-    DEBUG_PRINT("HOVER | ");
-
-  } else if (state == 3) { // TURN_TO_FIND_WALL
-    DEBUG_PRINT("TURN_TO_FIND_WALL | ");
-    // check if wall is found
-    bool side_range_check = side_range < ref_distance_from_wall / (float)cos(0.78f) + drone_dist_from_wall_to_start_margin;
-    bool front_range_check = front_range < ref_distance_from_wall / (float)cos(0.78f) + drone_dist_from_wall_to_start_margin;
-    if (side_range_check && front_range_check) {
-      previous_heading = current_heading;
-      angle = direction * (1.57f - (float)atan(front_range / side_range) + 0.1f);
-      DEBUG_PRINT("TRANSITION TO TURN_TO_ALIGN_TO_WALL | ");
-      state = transition(4); // go to turn_to_align_to_wall
-    }
-    if (side_range < (ref_distance_from_wall + drone_dist_from_wall_corner_margin) && front_range > 2.0f) {
-      //  around_corner_first_turn = true;
-      around_corner_go_back = false;
-      previous_heading = current_heading;
-      DEBUG_PRINT("TRANSITION TO FIND_CORNER | ");
-      state = transition(8); // go to rotate_around_wall
-    }
-    
-  } else if (state == 4) { //TURN_TO_ALIGN_TO_WALL
-    DEBUG_PRINT("TURN_TO_ALIGN_TO_WALL | ");
-    bool align_wall_check = logicIsCloseTo(wraptopi(current_heading - previous_heading), angle, 0.1f);
-    if (align_wall_check) {
-      // prev_side_range = side_range;
-      DEBUG_PRINT("TRANSITION TO FORWARD_ALONG_WALL | ");
-      state = transition(5);
-    }
-  } else if (state == 5) {  //FORWARD_ALONG_WALL
-    DEBUG_PRINT("FORWARD_ALONG_WALL | ");
-
-    // If side range is out of reach,
-    //    end of the wall is reached
-    if (side_range > ref_distance_from_wall + drone_dist_from_wall_corner_margin) {
-      //  around_corner_first_turn = true;
-      DEBUG_PRINT("TRANSITION TO FIND_CORNER | ");
-      state = transition(8);
-    }
-    // If front range is small
-    //    then corner is reached
-    if (front_range < ref_distance_from_wall + drone_dist_from_wall_to_start_margin) {
-      previous_heading = current_heading;
-      DEBUG_PRINT("TRANSITION TO ROTATE_IN CORNER | ");
-      state = transition(7);
-    }
-
-  } else if (state == 6) {  //ROTATE_AROUND_WALL
-    DEBUG_PRINT("ROTATE_AROUND_WALL | ");
-    if (front_range < ref_distance_from_wall + drone_dist_from_wall_to_start_margin) {
-      DEBUG_PRINT("TRANSITION TO TURN_TO_FIND_WALL | ");
-      state = transition(3);
-    }
-
-
-  } else if (state == 7) {   //ROTATE_IN_CORNER
-    DEBUG_PRINT("ROTATE_IN_CORNER | ");
-    // Check if heading goes over 0.8 rad (drone heading threshold)
-    bool check_heading_corner = logicIsCloseTo(fabs(wraptopi(current_heading - previous_heading)), drone_heading_threshold, 0.1f);
-    if (check_heading_corner) {
-      DEBUG_PRINT("TRANSITION TO TURN_TO_FIND_WALL | ");
-      state = transition(3);
-    }
-
-  } else if (state == 8) {   //FIND_CORNER
-    DEBUG_PRINT("FIND_CORNER | ");
-    if (side_range <= ref_distance_from_wall) {
-      DEBUG_PRINT("TRANSITION TO ROTATE_AROUND_WALL | ");
-      state = transition(6);
-    }
-  }
-  else {
-  }
-
-
-  /***********************************************************
-   * Handle state actions
-   ***********************************************************/
-
-  float temp_vel_x = 0;
-  float temp_vel_y = 0;
-  float temp_vel_w = 0;
-
-  if (state == 1) {      //FORWARD
-    DEBUG_PRINT("\nDOING: FORWARD\n"); // Changed by Jing Yen, refer to wallfallowing_multiranger_onboard for original
-    temp_vel_x = 0.0;
-    temp_vel_x = max_speed; // Adjust forward speed for desired circle radius
-    temp_vel_w = direction * max_rate; // Adjust yaw rate for desired circle tightness 
-
-  } else if (state == 2) {  // HOVER
-    DEBUG_PRINT("\nDOING: HOVER\n");
-    commandHover(&temp_vel_x, &temp_vel_y, &temp_vel_w);
-
-
-  } else if (state == 3) { // TURN_TO_FIND_WALL
-    DEBUG_PRINT("\nDOING: TURN TO FIND WALL\n");
-    commandTurn(&temp_vel_x, &temp_vel_w, max_rate);
-    temp_vel_y = 0.0;
-
-  } else if (state == 4) { //TURN_TO_ALIGN_TO_WALL
-
-
-    DEBUG_PRINT("\nDOING: TURN TO ALIGN TO WALL\n");
-    if (now - state_start_time < 1.0f)
-    {
-      commandHover(&temp_vel_x, &temp_vel_y, &temp_vel_w);
-    } else { // then turn again
-      commandTurn(&temp_vel_x, &temp_vel_w, max_rate);
-      temp_vel_y = 0;
-    }
-
-  } else if (state == 5) {  //FORWARD_ALONG_WALL
-    DEBUG_PRINT("\nDOING: FORWARD ALONG WALL\n");
-    commandForwardAlongWall(&temp_vel_x, &temp_vel_y, side_range);
-    temp_vel_w = 0.0f;
-
-    //commandForwardAlongWallHeadingSine(&temp_vel_x, &temp_vel_y,&temp_vel_w, side_range);
-
-  } else if (state == 6) {  //ROTATE_AROUND_WALL
-    // If first time around corner
-    //first try to find the corner again
-
-    DEBUG_PRINT("\nDOING: ROTATE AROUND WALL\n");
-    // if side range is larger than prefered distance from wall
-    if (side_range > ref_distance_from_wall + drone_dist_from_wall_corner_margin) {
-
-      // check if scanning has already occured
-      if (wraptopi(fabs(current_heading - previous_heading)) > drone_heading_threshold) {
-        around_corner_go_back = true;
-      }
-      // turn and adjust distnace to corner from that point
-      if (around_corner_go_back) {
-        // go back if it already went into one direction
-        commandTurnAndAdjust(&temp_vel_y, &temp_vel_w, -1 * max_rate, side_range);
-        temp_vel_x = 0.0f;
-      } else {
-        commandTurnAndAdjust(&temp_vel_y, &temp_vel_w, max_rate, side_range);
-        temp_vel_x = 0.0f;
-      }
-    } else {
-      // continue to turn around corner
-      previous_heading = current_heading;
-      around_corner_go_back = false;
-      commandTurnAroundCornerAndAdjust(&temp_vel_x, &temp_vel_y, &temp_vel_w, ref_distance_from_wall, side_range);
-    }
-
-  } else if (state == 7) {     //ROTATE_IN_CORNER
-    DEBUG_PRINT("\nDOING: ROTATE IN CORNER\n");
-    commandTurn(&temp_vel_x, &temp_vel_w, max_rate);
-    temp_vel_y = 0;
-
-  } else if (state == 8) { //FIND_CORNER
-    DEBUG_PRINT("\nDOING: FIND CORNER\n");
-    commandAlignCorner(&temp_vel_y, &temp_vel_w, -1 * max_rate, side_range, ref_distance_from_wall);
-    temp_vel_x = 0;
-  }
-
-  else {
-    //State does not exist so hover!!
-    DEBUG_PRINT("\nerror error error error error HOVER error error\n");
-    commandHover(&temp_vel_x, &temp_vel_y, &temp_vel_w);
-  }
-
-
-  *vel_x = temp_vel_x;
-  *vel_y = temp_vel_y;
-  *vel_w = temp_vel_w;
-
-  return state;
-
+    return state;
 }
