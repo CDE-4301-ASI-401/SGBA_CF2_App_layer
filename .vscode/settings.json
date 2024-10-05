@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "wallfollowing_multiranger_onboard copy_demo_code.h": "c",
+        "wallfollowing_multiranger_onboard_demo_code.h": "c",
+        "move_drone_cmd.h": "c",
+        "stdbool.h": "c"
+    }
+}
