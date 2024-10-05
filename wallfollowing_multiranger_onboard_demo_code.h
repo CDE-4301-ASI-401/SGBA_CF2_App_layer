@@ -19,9 +19,7 @@ typedef enum
     forwardAlongWall,
     rotateAroundWall,
     rotateInCorner,
-    findCorner
-    take_off,
-    land
+    findCorner,
 } StateWF;
 
 StateWF wallFollower(float *cmdVelX, float *cmdVelY, float *cmdAngW, float frontRange, float sideRange, float currentHeading,
