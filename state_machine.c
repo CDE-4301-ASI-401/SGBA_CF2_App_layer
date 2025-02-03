@@ -61,6 +61,8 @@ void p2pcallbackHandler(P2PPacket *p);
 static uint8_t rssi_inter;
 static uint8_t rssi_inter_filtered;
 static uint8_t rssi_inter_closest;
+///////
+static bool command_reverse = false;
 
 float rssi_angle_inter_ext;
 float rssi_angle_inter_closest;
@@ -78,6 +80,7 @@ static float up_range;
 static float back_range;
 static float rssi_angle;
 static int state;
+static uint64_t last_command = 0;
 
 
 #if METHOD == 3
@@ -240,6 +243,7 @@ void appMain(void *param)
     for (uint8_t it = 0; it < 40; it++)
     {
       uint64_t currentTimestamp = usecTimestamp();
+
       uint64_t otherDroneTimestamp = time_array_other_drones[it];
       // uint64_t deltaTime = currentTimestamp - otherDroneTimestamp;
       const uint64_t cutoffTime = 1000*1000*rssi_reset_interval;
@@ -420,7 +424,7 @@ void appMain(void *param)
         }
       }
     }
-
+pos.x
     //DEBUG_PRINT("Passed in rssi = %d\n", (int)rssi_inter_filtered);
 
 */
@@ -431,6 +435,7 @@ void appMain(void *param)
     // Main flying code
     if (keep_flying) {
       if (taken_off) {
+        DEBUG_PRINT("POSITION:%.2f,%.2f,%.2f\n", (double)pos.x, (double)pos.y, (double)pos.z);
         /*
          * If the flight is given a OK
          *  and the crazyflie has taken off
@@ -482,12 +487,12 @@ bool priority = true;
         else {
           drone_dist_from_wall = drone_dist_from_wall_2;
         }
-
+        DEBUG_PRINT("COMMAND REVERSE: %d\n",command_reverse);
         //TODO make outbound depended on battery.
         state = SGBA_controller(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, &rssi_angle, &state_wf, front_range,
                                              left_range, right_range, back_range, heading_rad,
-                                             (float)pos.x, (float)pos.y, rssi_beacon_filtered, rssi_inter_filtered, rssi_angle_inter_closest, priority, outbound, drone_dist_from_wall);
-
+                                             (float)pos.x, (float)pos.y, rssi_beacon_filtered, rssi_inter_filtered, rssi_angle_inter_closest, priority, outbound, drone_dist_from_wall, command_reverse);
+        command_reverse = false;
         memcpy(&p_reply.data[1],&rssi_angle, sizeof(float));
 
 
@@ -559,21 +564,13 @@ bool priority = true;
           // }
 
           static float heading = 0.0f;
-          // static float heading[3] = { 0.0f, 0.0f, 0.0f };
-          // static float heading[3] = { 60.0f, 0.0f, -60.0f };
           // static float heading[15] = { -69.0f, -48.0f, -27.0f, -6.0f, 15.0f, 36.0f, 57.0f, 78.0f, -66.0f, -42.0f, -18.0f, 6.0f, 30.0f, 54.0f, 78.0f};
-          // int index = robot_id % 3;
-          // DEBUG_PRINT("heading = %.2f\n", (double)heading);
+          DEBUG_PRINT("heading = %.2f\n", (double)heading);
           if (my_id_dec % 2 == 1) {
             init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1);
           } else {
             init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1);
           }
-          // if (my_id_dec % 2 == 1) {
-          //   init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading[my_id-1], -1);
-          // } else {
-          //   init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading[my_id-1], 1);
-          // }
           
 
 #endif
@@ -735,6 +732,7 @@ void p2pcallbackHandler(P2PPacket *p)
          {
           keep_flying =  p->data[1];
          }
+         
          else if (p->data[1] == 2)
          {
           keep_flying = false;
@@ -753,6 +751,19 @@ void p2pcallbackHandler(P2PPacket *p)
     }else if(id_inter_ext == 0x64){ 
         rssi_beacon =p->rssi;
 
+    }
+    else if(id_inter_ext == 0x70){
+      uint64_t currentTime = usecTimestamp();
+      uint64_t delta = currentTime-last_command;
+      if (delta>500000){ //new command (5 seconds)
+        DEBUG_PRINT("state_machine: Received reverse motion command\n");
+        command_reverse = p->data[1];
+        last_command = currentTime;
+      }
+      else{ //ignore subsequent commands
+        DEBUG_PRINT("MOTION COMMAND IGNORED\n");
+      }
+      
     }
     else{
         rssi_inter = p->rssi;
