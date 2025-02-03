@@ -21,7 +21,7 @@ int drone_speed_forward_adjust_scale = 2; // scale down for going forward along 
 int rssi_collision_threshold = 60;
 float rssi_reset_interval = 3.0;
 
-float nominal_height = 0.3;
+float nominal_height = 0.55; //Wall-following drons at 0.55; SGBA drones at 0.3
 // float CA_height = 1.3;
 
 // SGBA VARIABLES

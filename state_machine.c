@@ -54,14 +54,13 @@ static bool taken_off = false;
 //2=wall following with avoid: This also follows walls but will move away if another crazyflie with an lower ID is coming close, 
 //3=SGBA: The SGBA method that incorperates the above methods.
 //        NOTE: the switching between outbound and inbound has not been implemented yet
-#define METHOD 3
+#define METHOD 2
 
 
 void p2pcallbackHandler(P2PPacket *p);
 static uint8_t rssi_inter;
 static uint8_t rssi_inter_filtered;
 static uint8_t rssi_inter_closest;
-///////
 static bool command_reverse = false;
 
 float rssi_angle_inter_ext;
@@ -528,11 +527,26 @@ bool priority = true;
           wall_follower_init(drone_dist_from_wall, drone_speed, 1);
 #endif
 #if METHOD==2 // wallfollowing with avoid
-          if (my_id%2==1)
-          init_wall_follower_and_avoid_controller(drone_dist_from_wall_1, drone_speed, -1);
-          else
-          init_wall_follower_and_avoid_controller(drone_dist_from_wall_2, drone_speed, 1);
-
+          // Drone 10,11,20 perform wall-following
+            //CF20 WF around arena from right side (right wf)
+            //CF10 WF around straight wall at the end of the arena (right wf)
+            //CF11 WF around "L" wall at the left side of the arena (left wf)
+          if (my_id==20){
+            DEBUG_PRINT("IM CF20, right-wf\n");
+            init_wall_follower_and_avoid_controller(drone_dist_from_wall_1, drone_speed, 1);// right wf
+          }
+          else if(my_id==10){
+            DEBUG_PRINT("IM CF10, right-wf\n");
+            init_wall_follower_and_avoid_controller(drone_dist_from_wall_2, drone_speed, 1); //right wf
+          }
+          else if (my_id==11){
+            DEBUG_PRINT("IM CF11, left-wf\n");
+            init_wall_follower_and_avoid_controller(drone_dist_from_wall_1, drone_speed, -1); //left wf
+          }
+          else{
+            DEBUG_PRINT("DRONE ID NOT RECOGNIZED IN STATE_MACHINE, left-wf\n");
+            init_wall_follower_and_avoid_controller(drone_dist_from_wall_1, drone_speed, -1); //left wf
+          }
 #endif
 #if METHOD==3 // Swarm Gradient Bug Algorithm
 
