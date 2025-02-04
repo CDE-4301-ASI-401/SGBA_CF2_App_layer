@@ -61,7 +61,7 @@ void p2pcallbackHandler(P2PPacket *p);
 static uint8_t rssi_inter;
 static uint8_t rssi_inter_filtered;
 static uint8_t rssi_inter_closest;
-///////
+
 static bool command_reverse = false;
 
 float rssi_angle_inter_ext;
@@ -565,11 +565,13 @@ bool priority = true;
 
           static float heading = 0.0f;
           // static float heading[15] = { -69.0f, -48.0f, -27.0f, -6.0f, 15.0f, 36.0f, 57.0f, 78.0f, -66.0f, -42.0f, -18.0f, 6.0f, 30.0f, 54.0f, 78.0f};
-          DEBUG_PRINT("heading = %.2f\n", (double)heading);
-          if (my_id_dec % 2 == 1) {
-            init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1);
+          // DEBUG_PRINT("heading = %.2f\n", (double)heading);
+          //Drone 12,13,14 Left-WF; Drone 15,16,17 Right-WF; Drone 18,19 Left-WF
+          // FOR DEMO 1 REPLACE 13 WITH 7, REPLACE 17 WITH 6
+          if (my_id==12 || my_id==13 || my_id==14 || my_id==18 || my_id==19  ) {
+            init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1); //LEFT-WF
           } else {
-            init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1);
+            init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1); //RIGHT-WF
           }
           
 
