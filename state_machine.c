@@ -576,7 +576,7 @@ bool priority = true;
             init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1); // right wf
           } 
           else {
-            init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1); // right wf
+            init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1); // right wf
           }
           
 
