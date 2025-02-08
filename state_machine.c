@@ -757,7 +757,7 @@ void p2pcallbackHandler(P2PPacket *p)
     else if(id_inter_ext == 0x70){
       uint64_t currentTime = usecTimestamp();
       uint64_t delta = currentTime-last_command;
-      if (delta>500000){ //new command (5 seconds)
+      if (delta>2000000){ //new command (5 seconds)
         DEBUG_PRINT("state_machine: Received reverse motion command\n");
         command_reverse = p->data[1];
         last_command = currentTime;
