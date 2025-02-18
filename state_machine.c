@@ -531,15 +531,23 @@
              //CF20 WF around arena from right side (right wf)
              //CF10 WF around straight wall at the end of the arena (right wf)
              //CF11 WF around "L" wall at the left side of the arena (left wf)
-           if (my_id==20){
+            uint8_t my_id_dec = my_id;
+           if (my_id > 9) {
+             my_id_dec = my_id - 6;
+           } else if (my_id > 19) {
+             my_id_dec = my_id - 12;
+           } 
+
+           DEBUG_PRINT("id = %i\n", my_id_dec);
+           if (my_id_dec==20){
              DEBUG_PRINT("IM CF20, right-wf\n");
              init_wall_follower_and_avoid_controller(drone_dist_from_wall_1, drone_speed, 1);// right wf
            }
-           else if(my_id==10){
+           else if(my_id_dec==10){
              DEBUG_PRINT("IM CF10, right-wf\n");
              init_wall_follower_and_avoid_controller(drone_dist_from_wall_2, drone_speed, 1); //right wf
            }
-           else if (my_id==11){
+           else if (my_id_dec==11){
              DEBUG_PRINT("IM CF11, left-wf\n");
              init_wall_follower_and_avoid_controller(drone_dist_from_wall_1, drone_speed, -1); //left wf
            }
