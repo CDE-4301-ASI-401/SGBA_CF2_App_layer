@@ -13,7 +13,7 @@ float drone_heading_threshold = 0.8; // in rad / Check if drone heading goes ove
 float ranger_limit = 4.0f;
 
 // WALL FOLLOWING: DRONE SPEED VARIABLES
-float drone_speed = 0.5; //0.2; default drone speed
+float drone_speed = 0.4; //0.2; default drone speed
 int drone_speed_corner_scale = 2; //3; // scale down for turning around corner
 int drone_speed_forward_adjust_scale = 2; // scale down for going forward along wall
 
@@ -21,7 +21,7 @@ int drone_speed_forward_adjust_scale = 2; // scale down for going forward along 
 int rssi_collision_threshold = 60;
 float rssi_reset_interval = 3.0;
 
-float nominal_height = 0.55; //Wall-following drons at 0.55; SGBA drones at 0.3
+float nominal_height = 1.1; //Wall-following drons at 0.55; SGBA drones at 0.3
 // float CA_height = 1.3;
 
 // SGBA VARIABLES
