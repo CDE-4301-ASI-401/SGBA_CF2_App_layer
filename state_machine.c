@@ -751,17 +751,22 @@ void p2pcallbackHandler(P2PPacket *p)
 
     }
     else if(id_inter_ext == 0x70){
-      uint64_t currentTime = usecTimestamp();
-      uint64_t delta = currentTime-last_command;
-      if (delta>2000000){ //new command (5 seconds)
-        DEBUG_PRINT("state_machine: Received reverse motion command\n");
-        command_reverse = p->data[1];
-        last_command = currentTime;
+      // get the drone's ID
+      uint64_t address = configblockGetRadioAddress(); 
+      uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+      if (p->data[2] == 0xff || p->data[2] == my_id) 
+        {
+        uint64_t currentTime = usecTimestamp();
+        uint64_t delta = currentTime-last_command;
+        if (delta>2000000){ //new command (5 seconds)
+          DEBUG_PRINT("state_machine: Received reverse motion command\n");
+          command_reverse = p->data[1];
+          last_command = currentTime;
+        }
+        else{ //ignore subsequent commands
+          DEBUG_PRINT("MOTION COMMAND IGNORED\n");
+        }
       }
-      else{ //ignore subsequent commands
-        DEBUG_PRINT("MOTION COMMAND IGNORED\n");
-      }
-      
     }
     else{
         rssi_inter = p->rssi;
