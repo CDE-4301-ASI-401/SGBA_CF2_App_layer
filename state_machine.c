@@ -221,9 +221,9 @@ void appMain(void *param)
   p_reply.size=5;
   //DEBUG_PRINT("appMain");
 
-#if METHOD!=1
-  static uint64_t radioSendBroadcastTime=0;
-#endif
+// #if METHOD!=1
+//   static uint64_t radioSendBroadcastTime=0;
+// #endif
 
   static uint64_t takeoffdelaytime = 0;
 
@@ -539,12 +539,8 @@ bool priority = true;
           // float angle_interval = (180.0f / (number_of_angles-1));
 
           uint8_t my_id_dec = my_id;
-          if (my_id > 9) {
-            my_id_dec = my_id - 6;
-          } else if (my_id > 19) {
-            my_id_dec = my_id - 12;
-          } 
-          DEBUG_PRINT("id = %i\n", my_id_dec);
+          my_id_dec = my_id - 6;
+          DEBUG_PRINT("id = %i\n", my_id);
 
           // Testing
           // float heading = -90.0f + angle_interval * (my_id_dec % number_of_angles);
@@ -703,11 +699,11 @@ bool priority = true;
       is_flying = false;
     }
 
-    if ((usecTimestamp() >= radioSendBroadcastTime + 1000*500) && (is_flying == true)) {
-        radiolinkSendP2PPacketBroadcast(&p_reply);
-        radioSendBroadcastTime = usecTimestamp();
-        // DEBUG_PRINT("state_machine: Broadcasting RSSI\n");
-    }
+    // if ((usecTimestamp() >= radioSendBroadcastTime + 1000*500) && (is_flying == true)) {
+    //     radiolinkSendP2PPacketBroadcast(&p_reply);
+    //     radioSendBroadcastTime = usecTimestamp();
+    //     DEBUG_PRINT("state_machine: Broadcasting RSSI\n");
+    // }
 
 #endif
     commanderSetSetpoint(&setpoint_BG, STATE_MACHINE_COMMANDER_PRI);
