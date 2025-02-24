@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "drone_variables.h": "c"
+        "drone_variables.h": "c",
+        "cmath": "c"
     }
 }

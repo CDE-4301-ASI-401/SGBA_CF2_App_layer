@@ -35,6 +35,7 @@
 #include "median_filter.h"
 #include "configblock.h"
 #include "debug.h"
+#include "pillar_avoid.h"
 
 #define DEBUG_MODULE "SGBA"
 
@@ -198,211 +199,271 @@ bool is_close(float range) {
   return range < MIN_DISTANCE; // still too close to wall 
 }
 
-void appMain(void *param)
-{
-  static struct MedianFilterFloat medFilt;
-  init_median_filter_f(&medFilt, 5);
-  static struct MedianFilterFloat medFilt_2;
-  init_median_filter_f(&medFilt_2, 5);
-  static struct MedianFilterFloat medFilt_3;
-  init_median_filter_f(&medFilt_3, 13);
+void fly_forward_then_avoid(void) {
+    setpoint_t sp = {0};
+    bool turnRight = true; // Alternate turning direction
 
-  //Init filters for each drone
-  for (uint8_t i = 0; i < 40; i++)
-    init_median_filter_f(&medFiltDrones[i], 5);
+    // Takeoff
+    take_off(&sp, 0.5f);  // Ascend at 0.5m/s
+    commanderSetSetpoint(&sp, 1);
+    vTaskDelay(M2T(2000)); // Wait for takeoff
 
-  p2pRegisterCB(p2pcallbackHandler);
-  uint64_t address = configblockGetRadioAddress();
-  uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
-  static P2PPacket p_reply;
-  p_reply.port=0x00;
-  p_reply.data[0]=my_id;
-  memcpy(&p_reply.data[1], &rssi_angle, sizeof(float));
-  p_reply.size=5;
-  //DEBUG_PRINT("appMain");
-
-#if METHOD!=1
-  static uint64_t radioSendBroadcastTime=0;
-#endif
-
-  static uint64_t takeoffdelaytime = 0;
-
-  #if METHOD==3
-  static bool outbound = true;
-  #endif
-
-  systemWaitStart();
-  vTaskDelay(M2T(3000));
-  while (1) {
-    // DEBUG_PRINT("state_machine: address = %llu\n", address);
-    // DEBUG_PRINT("state_machine: my_id = %i\n", my_id);
-	// some delay before the whole thing starts
-    vTaskDelay(10);
-
-    // For every 1 second (depend on rssi_reset_interval), reset the RSSI value to high if it hasn't been received for a while
-    for (uint8_t it = 0; it < 40; it++)
-    {
-      uint64_t currentTimestamp = usecTimestamp();
-
-      uint64_t otherDroneTimestamp = time_array_other_drones[it];
-      // uint64_t deltaTime = currentTimestamp - otherDroneTimestamp;
-      const uint64_t cutoffTime = 1000*1000*rssi_reset_interval;
-
-      //if (usecTimestamp() >= time_array_other_drones[it] + 1000*1000*3) {
-      if (currentTimestamp >= otherDroneTimestamp + cutoffTime) {
-      
-        time_array_other_drones[it] = currentTimestamp + cutoffTime+1;
-        rssi_array_other_drones[it] = 150;
-        rssi_angle_array_other_drones[it] = 500.0f;
-
-        init_median_filter_f(&medFiltDrones[it], 5);
-        // DEBUG_PRINT("resetting RSSI for drone %i and delta is %lld\n", it, deltaTime);
-      }
+    // Ensure drone reaches the target height before proceeding
+    while ((float)rangeGet(rangeDown) > TAKEOFF_HEIGHT * 1.2f || (float)rangeGet(rangeDown) < TAKEOFF_HEIGHT * 0.8f) {
+        vTaskDelay(M2T(100));
     }
 
-    // get RSSI, id and angle of closests crazyflie.
-    id_inter_closest = (uint8_t)find_minimum(rssi_array_other_drones, 40);
-    rssi_inter_closest = rssi_array_other_drones[id_inter_closest];
-    rssi_angle_inter_closest = rssi_angle_array_other_drones[id_inter_closest];
+    uint32_t startTime = xTaskGetTickCount();
+    while ((xTaskGetTickCount() - startTime) < M2T(FORWARD_DURATION * 1000)) {
+        sp.velocity.x = FORWARD_SPEED;
+        commanderSetSetpoint(&sp, 2);
+        vTaskDelay(M2T(100));
 
-
-    // filter rssi
-    /*static int pos_avg = 0;
-    static long sum = 0;
-    static int arrNumbers[76] = {35};
-    static int len = sizeof(arrNumbers) / sizeof(int);
-    rssi_beacon_filtered = (uint8_t)movingAvg(arrNumbers, &sum, pos_avg, len, (int)rssi_beacon);*/
-
-
-    /*static int arrNumbers_inter[10] = {35};
-    static int len_inter = 10;//sizeof(arrNumbers_inter) / sizeof(int);
-    static int pos_avg_inter = 0;
-    static long sum_inter = 0;
-    rssi_inter_filtered = (uint8_t)movingAvg(arrNumbers_inter, &sum_inter, pos_avg_inter, len_inter, (int)rssi_inter_closest);*/
-    rssi_inter_filtered =  (uint8_t)update_median_filter_f(&medFilt_2, (float)rssi_inter_closest);
-
-
-    /*  // FOR RSSI CA DEBUGGING //
-    DEBUG_PRINT("state_machine: my_id = %i\n", my_id);
-    DEBUG_PRINT("state_machine: rssi array = ");
-    int loop;
-    for (loop=0; loop<40; loop++) {
-      DEBUG_PRINT("%d ", rssi_array_other_drones[loop]);
+        // Check for hand above drone
+        if ((float)rangeGet(rangeUp) < 0.15f) { 
+            break; // Exit loop and land
+        }
     }
-    DEBUG_PRINT("state_machine: rssi of closest = %i\n", (int)rssi_array_other_drones[id_inter_closest]);
-    DEBUG_PRINT("state_machine: rssi_inter_filtered = %i\n", (int)rssi_inter_filtered);*/
-
-
-    //checking init of multiranger and flowdeck
-    paramid = paramGetVarId("deck", "bcMultiranger");
-    uint8_t multiranger_isinit=paramGetInt(paramid);
-    paramid = paramGetVarId("deck", "bcFlow2");
-    uint8_t flowdeck_isinit=paramGetUint(paramid);
-
-    // get current height and heading
-    varid = logGetVarId("kalman", "stateZ");
-    height = logGetFloat(varid);
-    varid = logGetVarId("stabilizer", "yaw");
-    float heading_deg = logGetFloat(varid);
-    heading_rad = heading_deg * (float)M_PI / 180.0f;
-
-    //t RSSI of beacon
-    varid = logGetVarId("radio", "rssi");
-    rssi_beacon = logGetFloat(varid);
-    rssi_beacon_filtered =  (uint8_t)update_median_filter_f(&medFilt_3, (float)rssi_beacon);
-
-
-    /* filter rssi
-    static int pos_avg = 0;
-    static long sum = 0;
-    static int arrNumbers[26] = {35};
-    static int len = sizeof(arrNumbers) / sizeof(int);
-    rssi_beacon_filtered = (uint8_t)movingAvg(arrNumbers, &sum, pos_avg, len, (int)rssi_beacon);*/
-
-
-    // Select which laser range sensor readings to use
-    if (multiranger_isinit) {
-      front_range = (float)rangeGet(rangeFront) / 1000.0f;
-      right_range = (float)rangeGet(rangeRight) / 1000.0f;
-      left_range = (float)rangeGet(rangeLeft) / 1000.0f;
-      back_range = (float)rangeGet(rangeBack) / 1000.0f;
-      up_range = (float)rangeGet(rangeUp) / 1000.0f;
-    }
-
-    if (front_range > ranger_limit) {
-      front_range = ranger_limit;
-    }
-    if (right_range > ranger_limit) {
-      right_range = ranger_limit;
-    }
-    if (left_range > ranger_limit) {
-      left_range = ranger_limit;
-    }
-    if(back_range > ranger_limit) {
-      back_range = ranger_limit;
-    }
-    if (up_range > ranger_limit) {
-      up_range = ranger_limit;
-    } 
-
-
-    // Get position estimate of kalman filter
-    point_t pos;
-    estimatorKalmanGetEstimatedPos(&pos);
-
-    // Initialize setpoint
-    memset(&setpoint_BG, 0, sizeof(setpoint_BG));
-
-    // Filtere uprange, since it sometimes gives a low spike that
-    up_range_filtered = update_median_filter_f(&medFilt, up_range);
-    if (up_range_filtered < 0.05f) {
-      up_range_filtered = up_range;
-    }
-    //up_range_filtered = 1.0f;
-    //***************** Manual Startup procedure*************//
-
-    //TODO: shut off engines when crazyflie is on it's back.
-
-    /*    // indicate if top range is hit while it is not flying yet, then start counting
-        if (keep_flying == false && manual_startup==false && up_range <0.2f && on_the_ground == true)
-        {
-          manual_startup = true;
-          time_stamp_manual_startup_command = xTaskGetTickCount();
+    
+    // Start obstacle avoidance
+    while (true) {
+        if ((float)rangeGet(rangeUp) < 0.15f) {  // If hand is detected above
+            break;  // Exit loop to land
         }
 
-        // While still on the ground, but indicated that manual startup is requested, keep checking the time
-        if (keep_flying == false && manual_startup == true)
-        {
-            uint32_t currentTime = xTaskGetTickCount();
-            // If 3 seconds has passed, start flying.
-            if ((currentTime -time_stamp_manual_startup_command) > MANUAL_STARTUP_TIMEOUT)
-            {
-              keep_flying = true;
-              manual_startup = false;
-            }
-        }*/
-
-    // Don't fly if multiranger/updownlaser is not connected or the uprange is activated
-
-    if (flowdeck_isinit && multiranger_isinit ) {
-      //DEBUG_PRINT("correctly init both \n");
-      correctly_initialized = true;
+        if ((float)rangeGet(rangeFront) < CRITICAL_DISTANCE) {
+            sp.velocity.x = 0.0f; // Stop
+            sp.velocity.y = turnRight ? -AVOID_SPEED : AVOID_SPEED; // Alternate turn
+            turnRight = !turnRight;
+        } else {
+            sp.velocity.x = FORWARD_SPEED;
+            sp.velocity.y = 0.0f;
+        }
+        commanderSetSetpoint(&sp, 3);
+        vTaskDelay(M2T(100));
     }
 
+    // Land if hand is detected
+    land(&sp, 0.1f);
+    commanderSetSetpoint(&sp, 4);
+    vTaskDelay(3000); // Wait for landing
 
-#if METHOD == 3
-    uint8_t rssi_beacon_threshold = 41;
-       if (keep_flying == true && (!correctly_initialized || up_range < 0.2f || (!outbound
-                                   && rssi_beacon_filtered < rssi_beacon_threshold))) {
-         keep_flying = 0;
-       }
-#else
-       if (keep_flying == true && (!correctly_initialized || up_range < 0.2f)) {
-         keep_flying = 0;
-       }
-#endif
+    // Shut off motors
+    shut_off_engines(&sp);
+    commanderSetSetpoint(&sp, 5);
+}
 
-    state = 0;
+void appMain(void) {
+    fly_forward_then_avoid();
+}
+
+
+// void appMain(void *param)
+// {
+//   static struct MedianFilterFloat medFilt;
+//   init_median_filter_f(&medFilt, 5);
+//   static struct MedianFilterFloat medFilt_2;
+//   init_median_filter_f(&medFilt_2, 5);
+//   static struct MedianFilterFloat medFilt_3;
+//   init_median_filter_f(&medFilt_3, 13);
+
+//   //Init filters for each drone
+//   for (uint8_t i = 0; i < 40; i++)
+//     init_median_filter_f(&medFiltDrones[i], 5);
+
+//   p2pRegisterCB(p2pcallbackHandler);
+//   uint64_t address = configblockGetRadioAddress();
+//   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
+//   static P2PPacket p_reply;
+//   p_reply.port=0x00;
+//   p_reply.data[0]=my_id;
+//   memcpy(&p_reply.data[1], &rssi_angle, sizeof(float));
+//   p_reply.size=5;
+//   //DEBUG_PRINT("appMain");
+
+// #if METHOD!=1
+//   static uint64_t radioSendBroadcastTime=0;
+// #endif
+
+//   static uint64_t takeoffdelaytime = 0;
+
+//   #if METHOD==3
+//   static bool outbound = true;
+//   #endif
+
+//   systemWaitStart();
+//   vTaskDelay(M2T(3000));
+//   while (1) {
+//     // DEBUG_PRINT("state_machine: address = %llu\n", address);
+//     // DEBUG_PRINT("state_machine: my_id = %i\n", my_id);
+// 	// some delay before the whole thing starts
+//     vTaskDelay(10);
+
+//     // For every 1 second (depend on rssi_reset_interval), reset the RSSI value to high if it hasn't been received for a while
+//     for (uint8_t it = 0; it < 40; it++)
+//     {
+//       uint64_t currentTimestamp = usecTimestamp();
+
+//       uint64_t otherDroneTimestamp = time_array_other_drones[it];
+//       // uint64_t deltaTime = currentTimestamp - otherDroneTimestamp;
+//       const uint64_t cutoffTime = 1000*1000*rssi_reset_interval;
+
+//       //if (usecTimestamp() >= time_array_other_drones[it] + 1000*1000*3) {
+//       if (currentTimestamp >= otherDroneTimestamp + cutoffTime) {
+      
+//         time_array_other_drones[it] = currentTimestamp + cutoffTime+1;
+//         rssi_array_other_drones[it] = 150;
+//         rssi_angle_array_other_drones[it] = 500.0f;
+
+//         init_median_filter_f(&medFiltDrones[it], 5);
+//         // DEBUG_PRINT("resetting RSSI for drone %i and delta is %lld\n", it, deltaTime);
+//       }
+//     }
+
+//     // get RSSI, id and angle of closests crazyflie.
+//     id_inter_closest = (uint8_t)find_minimum(rssi_array_other_drones, 40);
+//     rssi_inter_closest = rssi_array_other_drones[id_inter_closest];
+//     rssi_angle_inter_closest = rssi_angle_array_other_drones[id_inter_closest];
+
+
+//     // filter rssi
+//     /*static int pos_avg = 0;
+//     static long sum = 0;
+//     static int arrNumbers[76] = {35};
+//     static int len = sizeof(arrNumbers) / sizeof(int);
+//     rssi_beacon_filtered = (uint8_t)movingAvg(arrNumbers, &sum, pos_avg, len, (int)rssi_beacon);*/
+
+
+//     /*static int arrNumbers_inter[10] = {35};
+//     static int len_inter = 10;//sizeof(arrNumbers_inter) / sizeof(int);
+//     static int pos_avg_inter = 0;
+//     static long sum_inter = 0;
+//     rssi_inter_filtered = (uint8_t)movingAvg(arrNumbers_inter, &sum_inter, pos_avg_inter, len_inter, (int)rssi_inter_closest);*/
+//     rssi_inter_filtered =  (uint8_t)update_median_filter_f(&medFilt_2, (float)rssi_inter_closest);
+
+
+//     /*  // FOR RSSI CA DEBUGGING //
+//     DEBUG_PRINT("state_machine: my_id = %i\n", my_id);
+//     DEBUG_PRINT("state_machine: rssi array = ");
+//     int loop;
+//     for (loop=0; loop<40; loop++) {
+//       DEBUG_PRINT("%d ", rssi_array_other_drones[loop]);
+//     }
+//     DEBUG_PRINT("state_machine: rssi of closest = %i\n", (int)rssi_array_other_drones[id_inter_closest]);
+//     DEBUG_PRINT("state_machine: rssi_inter_filtered = %i\n", (int)rssi_inter_filtered);*/
+
+
+//     //checking init of multiranger and flowdeck
+//     paramid = paramGetVarId("deck", "bcMultiranger");
+//     uint8_t multiranger_isinit=paramGetInt(paramid);
+//     paramid = paramGetVarId("deck", "bcFlow2");
+//     uint8_t flowdeck_isinit=paramGetUint(paramid);
+
+//     // get current height and heading
+//     varid = logGetVarId("kalman", "stateZ");
+//     height = logGetFloat(varid);
+//     varid = logGetVarId("stabilizer", "yaw");
+//     float heading_deg = logGetFloat(varid);
+//     heading_rad = heading_deg * (float)M_PI / 180.0f;
+
+//     //t RSSI of beacon
+//     varid = logGetVarId("radio", "rssi");
+//     rssi_beacon = logGetFloat(varid);
+//     rssi_beacon_filtered =  (uint8_t)update_median_filter_f(&medFilt_3, (float)rssi_beacon);
+
+
+//     /* filter rssi
+//     static int pos_avg = 0;
+//     static long sum = 0;
+//     static int arrNumbers[26] = {35};
+//     static int len = sizeof(arrNumbers) / sizeof(int);
+//     rssi_beacon_filtered = (uint8_t)movingAvg(arrNumbers, &sum, pos_avg, len, (int)rssi_beacon);*/
+
+
+//     // Select which laser range sensor readings to use
+//     if (multiranger_isinit) {
+//       front_range = (float)rangeGet(rangeFront) / 1000.0f;
+//       right_range = (float)rangeGet(rangeRight) / 1000.0f;
+//       left_range = (float)rangeGet(rangeLeft) / 1000.0f;
+//       back_range = (float)rangeGet(rangeBack) / 1000.0f;
+//       up_range = (float)rangeGet(rangeUp) / 1000.0f;
+//     }
+
+//     if (front_range > ranger_limit) {
+//       front_range = ranger_limit;
+//     }
+//     if (right_range > ranger_limit) {
+//       right_range = ranger_limit;
+//     }
+//     if (left_range > ranger_limit) {
+//       left_range = ranger_limit;
+//     }
+//     if(back_range > ranger_limit) {
+//       back_range = ranger_limit;
+//     }
+//     if (up_range > ranger_limit) {
+//       up_range = ranger_limit;
+//     } 
+
+
+//     // Get position estimate of kalman filter
+//     point_t pos;
+//     estimatorKalmanGetEstimatedPos(&pos);
+
+//     // Initialize setpoint
+//     memset(&setpoint_BG, 0, sizeof(setpoint_BG));
+
+//     // Filtere uprange, since it sometimes gives a low spike that
+//     up_range_filtered = update_median_filter_f(&medFilt, up_range);
+//     if (up_range_filtered < 0.05f) {
+//       up_range_filtered = up_range;
+//     }
+//     //up_range_filtered = 1.0f;
+//     //***************** Manual Startup procedure*************//
+
+//     //TODO: shut off engines when crazyflie is on it's back.
+
+//     /*    // indicate if top range is hit while it is not flying yet, then start counting
+//         if (keep_flying == false && manual_startup==false && up_range <0.2f && on_the_ground == true)
+//         {
+//           manual_startup = true;
+//           time_stamp_manual_startup_command = xTaskGetTickCount();
+//         }
+
+//         // While still on the ground, but indicated that manual startup is requested, keep checking the time
+//         if (keep_flying == false && manual_startup == true)
+//         {
+//             uint32_t currentTime = xTaskGetTickCount();
+//             // If 3 seconds has passed, start flying.
+//             if ((currentTime -time_stamp_manual_startup_command) > MANUAL_STARTUP_TIMEOUT)
+//             {
+//               keep_flying = true;
+//               manual_startup = false;
+//             }
+//         }*/
+
+//     // Don't fly if multiranger/updownlaser is not connected or the uprange is activated
+
+//     if (flowdeck_isinit && multiranger_isinit ) {
+//       //DEBUG_PRINT("correctly init both \n");
+//       correctly_initialized = true;
+//     }
+
+
+// #if METHOD == 3
+//     uint8_t rssi_beacon_threshold = 41;
+//        if (keep_flying == true && (!correctly_initialized || up_range < 0.2f || (!outbound
+//                                    && rssi_beacon_filtered < rssi_beacon_threshold))) {
+//          keep_flying = 0;
+//        }
+// #else
+//        if (keep_flying == true && (!correctly_initialized || up_range < 0.2f)) {
+//          keep_flying = 0;
+//        }
+// #endif
+
+//     state = 0;
+
 
 
 /*
@@ -427,407 +488,405 @@ void appMain(void *param)
 pos.x
     //DEBUG_PRINT("Passed in rssi = %d\n", (int)rssi_inter_filtered);
 
-*/
 
     //DEBUG_PRINT("Timestamp %llu\n",usecTimestamp());
 
 
-    // Main flying code
-    if (keep_flying) {
-      if (taken_off) {
-        DEBUG_PRINT("POSITION:%.2f,%.2f,%.2f\n", (double)pos.x, (double)pos.y, (double)pos.z);
-        /*
-         * If the flight is given a OK
-         *  and the crazyflie has taken off
-         *   then perform state machine
-         */
-    	  vel_w_cmd = 0;
-        hover(&setpoint_BG, nominal_height);
-        // DEBUG_PRINT("state_machine: Hover at nominal_height\n");
+//     // Main flying code
+//     if (keep_flying) {
+//       if (taken_off) {
+//         DEBUG_PRINT("POSITION:%.2f,%.2f,%.2f\n", (double)pos.x, (double)pos.y, (double)pos.z);
+//          * If the flight is given a OK
+//          *  and the crazyflie has taken off
+//          *   then perform state machine
+//          */
+//     	  vel_w_cmd = 0;
+//         hover(&setpoint_BG, nominal_height);
+//         // DEBUG_PRINT("state_machine: Hover at nominal_height\n");
 
-#if METHOD == 1 //WALL_FOLLOWING
-        // wall following state machine
-        state = wall_follower(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, front_range, right_range, heading_rad, 1);
-#endif
-#if METHOD ==2 //WALL_FOLLOWER_AND_AVOID
-        // DEBUG_PRINT("state_machine: id_inter_closest = %i\n", id_inter_closest);
-        // DEBUG_PRINT("state_machine: my_id = %i\n", my_id);
-        // DEBUG_PRINT("state_machine: rssi array = %hhn\n", rssi_array_other_drones);
-        // DEBUG_PRINT("state_machine: rssi of closest = %i\n", (int)rssi_angle_array_other_drones[id_inter_closest]);
+// #if METHOD == 1 //WALL_FOLLOWING
+//         // wall following state machine
+//         state = wall_follower(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, front_range, right_range, heading_rad, 1);
+// #endif
+// #if METHOD ==2 //WALL_FOLLOWER_AND_AVOID
+//         // DEBUG_PRINT("state_machine: id_inter_closest = %i\n", id_inter_closest);
+//         // DEBUG_PRINT("state_machine: my_id = %i\n", my_id);
+//         // DEBUG_PRINT("state_machine: rssi array = %hhn\n", rssi_array_other_drones);
+//         // DEBUG_PRINT("state_machine: rssi of closest = %i\n", (int)rssi_angle_array_other_drones[id_inter_closest]);
 
-        // // RSSI CA FOR 2 DRONES //
-        // if (id_inter_closest > my_id || (id_inter_closest % 2 == my_id % 2)) {
-        //     rssi_inter_filtered = 140;
+//         // // RSSI CA FOR 2 DRONES //
+//         // if (id_inter_closest > my_id || (id_inter_closest % 2 == my_id % 2)) {
+//         //     rssi_inter_filtered = 140;
             
-        //     id_inter_closest = (uint8_t)find_minimum(rssi_array_other_drones, 40);
-        // }
+//         //     id_inter_closest = (uint8_t)find_minimum(rssi_array_other_drones, 40);
+//         // }
 
-        rssi_inter_filtered = 140;
-        state = wall_follower_and_avoid_controller(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, front_range, left_range, right_range,
-                heading_rad, rssi_inter_filtered);
-#endif
-#if METHOD==3 // SwWARM GRADIENT BUG ALGORITHM
-
-
-/*
-        bool priority = false;
-        if (id_inter_closest > my_id) {
-          priority = true;
-        } else {
-          priority = false;
-
-        }
-*/
-bool priority = true;
-
-        float drone_dist_from_wall;
-        if (my_id % 2 == 1) {
-          drone_dist_from_wall = drone_dist_from_wall_1;
-        }
-        else {
-          drone_dist_from_wall = drone_dist_from_wall_2;
-        }
-        DEBUG_PRINT("COMMAND REVERSE: %d\n",command_reverse);
-        //TODO make outbound depended on battery.
-        state = SGBA_controller(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, &rssi_angle, &state_wf, front_range,
-                                             left_range, right_range, back_range, heading_rad,
-                                             (float)pos.x, (float)pos.y, rssi_beacon_filtered, rssi_inter_filtered, rssi_angle_inter_closest, priority, outbound, drone_dist_from_wall, command_reverse);
-        command_reverse = false;
-        memcpy(&p_reply.data[1],&rssi_angle, sizeof(float));
+//         rssi_inter_filtered = 140;
+//         state = wall_follower_and_avoid_controller(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, front_range, left_range, right_range,
+//                 heading_rad, rssi_inter_filtered);
+// #endif
+// #if METHOD==3 // SwWARM GRADIENT BUG ALGORITHM
 
 
+// /*
+//         bool priority = false;
+//         if (id_inter_closest > my_id) {
+//           priority = true;
+//         } else {
+//           priority = false;
 
-#endif
+//         }
+// */
+// bool priority = true;
 
-        // convert yaw rate commands to degrees
-        float vel_w_cmd_convert = vel_w_cmd * 180.0f / (float)M_PI;
-
-        // Convert relative commands to world commands (not necessary anymore)
-        /*float psi = heading_rad;
-        float vel_x_cmd_convert =  cosf(-psi) * vel_x_cmd + sinf(-psi) * vel_y_cmd;
-        float vel_y_cmd_convert = -sinf(-psi) * vel_x_cmd + cosf(-psi) * vel_y_cmd;*/
-        //float vel_y_cmd_convert = -1 * vel_y_cmd;
-        // DEBUG_PRINT("state_machine: Calling vel_command\n");
-        vel_command(&setpoint_BG, vel_x_cmd, vel_y_cmd, vel_w_cmd_convert, nominal_height);
-        on_the_ground = false;
-      } else {
-        /*
-         * If the flight is given a OK
-         *  but the crazyflie  has not taken off
-         *   then take off
-         */
-          // if (usecTimestamp() >= takeoffdelaytime + 1000*1000*my_id) {
-          if (usecTimestamp() >= takeoffdelaytime) {
-
-              take_off(&setpoint_BG, nominal_height);
-              if (height > nominal_height) {
-                  taken_off = true;
+//         float drone_dist_from_wall;
+//         if (my_id % 2 == 1) {
+//           drone_dist_from_wall = drone_dist_from_wall_1;
+//         }
+//         else {
+//           drone_dist_from_wall = drone_dist_from_wall_2;
+//         }
+//         DEBUG_PRINT("COMMAND REVERSE: %d\n",command_reverse);
+//         //TODO make outbound depended on battery.
+//         state = SGBA_controller(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, &rssi_angle, &state_wf, front_range,
+//                                              left_range, right_range, back_range, heading_rad,
+//                                              (float)pos.x, (float)pos.y, rssi_beacon_filtered, rssi_inter_filtered, rssi_angle_inter_closest, priority, outbound, drone_dist_from_wall, command_reverse);
+//         command_reverse = false;
+//         memcpy(&p_reply.data[1],&rssi_angle, sizeof(float));
 
 
-#if METHOD==1 // wall following
-          wall_follower_init(drone_dist_from_wall, drone_speed, 1);
-#endif
-#if METHOD==2 // wallfollowing with avoid
-          if (my_id%2==1)
-          init_wall_follower_and_avoid_controller(drone_dist_from_wall_1, drone_speed, -1);
-          else
-          init_wall_follower_and_avoid_controller(drone_dist_from_wall_2, drone_speed, 1);
 
-#endif
-#if METHOD==3 // Swarm Gradient Bug Algorithm
+// #endif
 
-          // float angle_interval = (180.0f / (number_of_angles-1));
+//         // convert yaw rate commands to degrees
+//         float vel_w_cmd_convert = vel_w_cmd * 180.0f / (float)M_PI;
 
-          uint8_t my_id_dec = my_id;
-          if (my_id > 9) {
-            my_id_dec = my_id - 6;
-          } else if (my_id > 19) {
-            my_id_dec = my_id - 12;
-          } 
-          DEBUG_PRINT("id = %i\n", my_id_dec);
+//         // Convert relative commands to world commands (not necessary anymore)
+//         /*float psi = heading_rad;
+//         float vel_x_cmd_convert =  cosf(-psi) * vel_x_cmd + sinf(-psi) * vel_y_cmd;
+//         float vel_y_cmd_convert = -sinf(-psi) * vel_x_cmd + cosf(-psi) * vel_y_cmd;*/
+//         //float vel_y_cmd_convert = -1 * vel_y_cmd;
+//         // DEBUG_PRINT("state_machine: Calling vel_command\n");
+//         vel_command(&setpoint_BG, vel_x_cmd, vel_y_cmd, vel_w_cmd_convert, nominal_height);
+//         on_the_ground = false;
+//       } else {
+//         /*
+//          * If the flight is given a OK
+//          *  but the crazyflie  has not taken off
+//          *   then take off
+//          */
+//           // if (usecTimestamp() >= takeoffdelaytime + 1000*1000*my_id) {
+//           if (usecTimestamp() >= takeoffdelaytime) {
 
-          // Testing
-          // float heading = -90.0f + angle_interval * (my_id_dec % number_of_angles);
-          // // float heading_180;
-          // if (heading >= 0) {
-          //   heading = (heading / 180 - (int)(heading / 180)) * 180;
-          // } else {
-          //   heading = (heading / 180 + (int)(heading / 180)) * 180;
-          // }
+//               take_off(&setpoint_BG, nominal_height);
+//               if (height > nominal_height) {
+//                   taken_off = true;
 
-          // 8 and 9 directions
-          // DEBUG_PRINT("heading = %.2f\n", (double)heading);
-          // if (my_id_dec % 2 == 1) {
-          //   init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1);
-          // } else {
-          //   init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1);
-          // }
 
-          static float heading = 0.0f;
-          // static float heading[15] = { -69.0f, -48.0f, -27.0f, -6.0f, 15.0f, 36.0f, 57.0f, 78.0f, -66.0f, -42.0f, -18.0f, 6.0f, 30.0f, 54.0f, 78.0f};
-          DEBUG_PRINT("heading = %.2f\n", (double)heading);
-          if (my_id_dec % 2 == 1) {
-            init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1);
-          } else {
-            init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1);
-          }
+// #if METHOD==1 // wall following
+//           wall_follower_init(drone_dist_from_wall, drone_speed, 1);
+// #endif
+// #if METHOD==2 // wallfollowing with avoid
+//           if (my_id%2==1)
+//           init_wall_follower_and_avoid_controller(drone_dist_from_wall_1, drone_speed, -1);
+//           else
+//           init_wall_follower_and_avoid_controller(drone_dist_from_wall_2, drone_speed, 1);
+
+// #endif
+// #if METHOD==3 // Swarm Gradient Bug Algorithm
+
+//           // float angle_interval = (180.0f / (number_of_angles-1));
+
+//           uint8_t my_id_dec = my_id;
+//           if (my_id > 9) {
+//             my_id_dec = my_id - 6;
+//           } else if (my_id > 19) {
+//             my_id_dec = my_id - 12;
+//           } 
+//           DEBUG_PRINT("id = %i\n", my_id_dec);
+
+//           // Testing
+//           // float heading = -90.0f + angle_interval * (my_id_dec % number_of_angles);
+//           // // float heading_180;
+//           // if (heading >= 0) {
+//           //   heading = (heading / 180 - (int)(heading / 180)) * 180;
+//           // } else {
+//           //   heading = (heading / 180 + (int)(heading / 180)) * 180;
+//           // }
+
+//           // 8 and 9 directions
+//           // DEBUG_PRINT("heading = %.2f\n", (double)heading);
+//           // if (my_id_dec % 2 == 1) {
+//           //   init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1);
+//           // } else {
+//           //   init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1);
+//           // }
+
+//           static float heading = 0.0f;
+//           // static float heading[15] = { -69.0f, -48.0f, -27.0f, -6.0f, 15.0f, 36.0f, 57.0f, 78.0f, -66.0f, -42.0f, -18.0f, 6.0f, 30.0f, 54.0f, 78.0f};
+//           DEBUG_PRINT("heading = %.2f\n", (double)heading);
+//           if (my_id_dec % 2 == 1) {
+//             init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1);
+//           } else {
+//             init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1);
+//           }
           
 
-#endif
+// #endif
 
 
-              }
-          on_the_ground = false;
-          }else{
-              shut_off_engines(&setpoint_BG);
-              taken_off = false;
-          }
+//               }
+//           on_the_ground = false;
+//           }else{
+//               shut_off_engines(&setpoint_BG);
+//               taken_off = false;
+//           }
 
-      }
-    } else { //keep_flying == false
-      if (taken_off) {
-        /*
-         * If the flight is given a not OK
-         *  but the crazyflie  has already taken off
-         *   then land
-         */
-        if (move_away_from_walls) {
-        DEBUG_PRINT("MOVE AWAY FROM WALLS AND LAND \n");
+//       }
+//     } else { //keep_flying == false
+//       if (taken_off) {
+//         /*
+//          * If the flight is given a not OK
+//          *  but the crazyflie  has already taken off
+//          *   then land
+//          */
+//         if (move_away_from_walls) {
+//         DEBUG_PRINT("MOVE AWAY FROM WALLS AND LAND \n");
         
-          const float VELOCITY = 0.1; 
-          vel_x_cmd = 0; vel_y_cmd = 0;
-          const float threshold = 1.1;
-          const float buffer1 = 0.2;
-          const float buffer2 = 0.15;
+//           const float VELOCITY = 0.1; 
+//           vel_x_cmd = 0; vel_y_cmd = 0;
+//           const float threshold = 1.1;
+//           const float buffer1 = 0.2;
+//           const float buffer2 = 0.15;
 
 
-          // if (front_range < threshold + buffer1) {
-          //   DEBUG_PRINT("FRONT %.2f < THRESHOLD %.2f \n", (double)front_range, (double)(threshold + buffer1));
-          //   if (front_range < threshold) {
-          //     vel_x_cmd -= VELOCITY;
-          //   } else {
-          //     vel_x_cmd += VELOCITY;
-          //   }
-          //   if (front_range > threshold && front_range < threshold + buffer2){
-          //     move_away_from_walls = false;
-          //     DEBUG_PRINT("Finish Moving Away\n");
-          //   }
-          // }
-          if (left_range + right_range < 2*threshold + buffer1) {
-            DEBUG_PRINT("LEFT AND RIGHT < THRESHOLD \n");
-            if (left_range < threshold) {
-              vel_y_cmd -= VELOCITY;
-            } else {
-              vel_y_cmd += VELOCITY;
-            }
-            if (left_range > threshold && left_range < threshold + buffer2){
-              move_away_from_walls = false;
-              DEBUG_PRINT("Finish Moving Away\n");
-            }
-          }
+//           // if (front_range < threshold + buffer1) {
+//           //   DEBUG_PRINT("FRONT %.2f < THRESHOLD %.2f \n", (double)front_range, (double)(threshold + buffer1));
+//           //   if (front_range < threshold) {
+//           //     vel_x_cmd -= VELOCITY;
+//           //   } else {
+//           //     vel_x_cmd += VELOCITY;
+//           //   }
+//           //   if (front_range > threshold && front_range < threshold + buffer2){
+//           //     move_away_from_walls = false;
+//           //     DEBUG_PRINT("Finish Moving Away\n");
+//           //   }
+//           // }
+//           if (left_range + right_range < 2*threshold + buffer1) {
+//             DEBUG_PRINT("LEFT AND RIGHT < THRESHOLD \n");
+//             if (left_range < threshold) {
+//               vel_y_cmd -= VELOCITY;
+//             } else {
+//               vel_y_cmd += VELOCITY;
+//             }
+//             if (left_range > threshold && left_range < threshold + buffer2){
+//               move_away_from_walls = false;
+//               DEBUG_PRINT("Finish Moving Away\n");
+//             }
+//           }
 
 
 
-          // check multiranger distance
-          else if (is_close(front_range) || is_close(left_range) || is_close(right_range)) { //|| is_close(back_range) 
-            DEBUG_PRINT("------ \n");
+//           // check multiranger distance
+//           else if (is_close(front_range) || is_close(left_range) || is_close(right_range)) { //|| is_close(back_range) 
+//             DEBUG_PRINT("------ \n");
            
-            if (is_close(front_range)) {
-                DEBUG_PRINT("Move Backwards\n");
-                vel_x_cmd -= VELOCITY;
-            }
-            // if (is_close(back_range)) {
-            //     DEBUG_PRINT("Move Forward\n");
-            //     vel_x_cmd += VELOCITY;
-            // }
-            if (is_close(left_range)) {
-                DEBUG_PRINT("Move Right\n");
-                vel_y_cmd -= VELOCITY;
-            }
-            if (is_close(right_range)) {
-                DEBUG_PRINT("Move Left\n");
-                vel_y_cmd += VELOCITY;
-            }
-          }
+//             if (is_close(front_range)) {
+//                 DEBUG_PRINT("Move Backwards\n");
+//                 vel_x_cmd -= VELOCITY;
+//             }
+//             // if (is_close(back_range)) {
+//             //     DEBUG_PRINT("Move Forward\n");
+//             //     vel_x_cmd += VELOCITY;
+//             // }
+//             if (is_close(left_range)) {
+//                 DEBUG_PRINT("Move Right\n");
+//                 vel_y_cmd -= VELOCITY;
+//             }
+//             if (is_close(right_range)) {
+//                 DEBUG_PRINT("Move Left\n");
+//                 vel_y_cmd += VELOCITY;
+//             }
+//           }
 
-          else{
-            move_away_from_walls = false;
-            DEBUG_PRINT("Finish moving away\n");
-          }
+//           else{
+//             move_away_from_walls = false;
+//             DEBUG_PRINT("Finish moving away\n");
+//           }
           
-          float vel_w_cmd_convert = vel_w_cmd * 180.0f / (float)M_PI;
-          vel_command(&setpoint_BG, vel_x_cmd, vel_y_cmd, vel_w_cmd_convert, nominal_height);
-        }
+//           float vel_w_cmd_convert = vel_w_cmd * 180.0f / (float)M_PI;
+//           vel_command(&setpoint_BG, vel_x_cmd, vel_y_cmd, vel_w_cmd_convert, nominal_height);
+//         }
   
          
 
       
-        else //original land logic
-        {
-          DEBUG_PRINT("LANDING\n");
-          vTaskDelay(1800);
-          land(&setpoint_BG, 0.75f);
-          if (height < 0.1f) {
-            shut_off_engines(&setpoint_BG);
-            taken_off = false;
-          }
-          on_the_ground = false;
-        } //else original land topic
+//         else //original land logic
+//         {
+//           DEBUG_PRINT("LANDING\n");
+//           vTaskDelay(1800);
+//           land(&setpoint_BG, 0.75f);
+//           if (height < 0.1f) {
+//             shut_off_engines(&setpoint_BG);
+//             taken_off = false;
+//           }
+//           on_the_ground = false;
+//         } //else original land topic
       
 
 
-      } else {
+//       } else {
 
 
-        /*
-         * If the flight is given a not OK
-         *  and crazyflie has landed
-         *   then keep engines off
-         */
-        shut_off_engines(&setpoint_BG);
-        takeoffdelaytime=usecTimestamp();
-        on_the_ground = true;
-      }
-    }
+//         /*
+//          * If the flight is given a not OK
+//          *  and crazyflie has landed
+//          *   then keep engines off
+//          */
+//         shut_off_engines(&setpoint_BG);
+//         takeoffdelaytime=usecTimestamp();
+//         on_the_ground = true;
+//       }
+//     }
 
-#if METHOD != 1
-    if (height > 0.25f && up_range > 0.2f) {
-      // DEBUG_PRINT("height: %.2f\n", (double)height);
-      // DEBUG_PRINT("up range: %.2f\n", (double)up_range);
-      is_flying = true;
-    }
-    else {
-      // DEBUG_PRINT("NOT FLYING\n");
-      is_flying = false;
-    }
+// #if METHOD != 1
+//     if (height > 0.25f && up_range > 0.2f) {
+//       // DEBUG_PRINT("height: %.2f\n", (double)height);
+//       // DEBUG_PRINT("up range: %.2f\n", (double)up_range);
+//       is_flying = true;
+//     }
+//     else {
+//       // DEBUG_PRINT("NOT FLYING\n");
+//       is_flying = false;
+//     }
 
-    if ((usecTimestamp() >= radioSendBroadcastTime + 1000*500) && (is_flying == true)) {
-        radiolinkSendP2PPacketBroadcast(&p_reply);
-        radioSendBroadcastTime = usecTimestamp();
-        // DEBUG_PRINT("state_machine: Broadcasting RSSI\n");
-    }
+//     if ((usecTimestamp() >= radioSendBroadcastTime + 1000*500) && (is_flying == true)) {
+//         radiolinkSendP2PPacketBroadcast(&p_reply);
+//         radioSendBroadcastTime = usecTimestamp();
+//         // DEBUG_PRINT("state_machine: Broadcasting RSSI\n");
+//     }
 
-#endif
-    commanderSetSetpoint(&setpoint_BG, STATE_MACHINE_COMMANDER_PRI);
+// #endif
+//     commanderSetSetpoint(&setpoint_BG, STATE_MACHINE_COMMANDER_PRI);
 
-  }
-}
+//   }
+// }
 
-void p2pcallbackHandler(P2PPacket *p)
-{
-    id_inter_ext = p->data[0];
-    //DEBUG_PRINT("receive packet \n");
+// void p2pcallbackHandler(P2PPacket *p)
+// {
+//     id_inter_ext = p->data[0];
+//     //DEBUG_PRINT("receive packet \n");
 
 
-    if (id_inter_ext == 0x63)
-    {
-        // get the drone's ID
-        uint64_t address = configblockGetRadioAddress(); 
-        uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+//     if (id_inter_ext == 0x63)
+//     {
+//         // get the drone's ID
+//         uint64_t address = configblockGetRadioAddress(); 
+//         uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
 
-        //if 3rd byte of packet = 0xff or = drone's ID
-        if (p->data[2] == 0xff || p->data[2] == my_id) 
-        {
-         if (p->data[1] == 0 || p->data[1] == 1)
-         {
-          keep_flying =  p->data[1];
-         }
+//         //if 3rd byte of packet = 0xff or = drone's ID
+//         if (p->data[2] == 0xff || p->data[2] == my_id) 
+//         {
+//          if (p->data[1] == 0 || p->data[1] == 1)
+//          {
+//           keep_flying =  p->data[1];
+//          }
          
-         else if (p->data[1] == 2)
-         {
-          keep_flying = false;
-          move_away_from_walls = true;
-         }
-        }
+//          else if (p->data[1] == 2)
+//          {
+//           keep_flying = false;
+//           move_away_from_walls = true;
+//          }
+//         }
 
-        // if (p->data[2] == my_id){
-        //   keep_flying = !keep_flying; 
-        // }
-        // else{
-        //   keep_flying =  p->data[1];
-        // }
+//         // if (p->data[2] == my_id){
+//         //   keep_flying = !keep_flying; 
+//         // }
+//         // else{
+//         //   keep_flying =  p->data[1];
+//         // }
 
 
-    }else if(id_inter_ext == 0x64){ 
-        rssi_beacon =p->rssi;
+//     }else if(id_inter_ext == 0x64){ 
+//         rssi_beacon =p->rssi;
 
-    }
-    else if(id_inter_ext == 0x70){
-      uint64_t currentTime = usecTimestamp();
-      uint64_t delta = currentTime-last_command;
-      if (delta>500000){ //new command (5 seconds)
-        DEBUG_PRINT("state_machine: Received reverse motion command\n");
-        command_reverse = p->data[1];
-        last_command = currentTime;
-      }
-      else{ //ignore subsequent commands
-        DEBUG_PRINT("MOTION COMMAND IGNORED\n");
-      }
+//     }
+//     else if(id_inter_ext == 0x70){
+//       uint64_t currentTime = usecTimestamp();
+//       uint64_t delta = currentTime-last_command;
+//       if (delta>500000){ //new command (5 seconds)
+//         DEBUG_PRINT("state_machine: Received reverse motion command\n");
+//         command_reverse = p->data[1];
+//         last_command = currentTime;
+//       }
+//       else{ //ignore subsequent commands
+//         DEBUG_PRINT("MOTION COMMAND IGNORED\n");
+//       }
       
-    }
-    else{
-        rssi_inter = p->rssi;
-        DEBUG_PRINT("state_machine: Received RSSI is %i\n", rssi_inter);
-        memcpy(&rssi_angle_inter_ext, &p->data[1], sizeof(float));
+//     }
+//     else{
+//         rssi_inter = p->rssi;
+//         DEBUG_PRINT("state_machine: Received RSSI is %i\n", rssi_inter);
+//         memcpy(&rssi_angle_inter_ext, &p->data[1], sizeof(float));
 
-        rssi_array_other_drones[id_inter_ext] = rssi_inter;
-        time_array_other_drones[id_inter_ext] = usecTimestamp();
-        rssi_angle_array_other_drones[id_inter_ext] = rssi_angle_inter_ext;
+//         rssi_array_other_drones[id_inter_ext] = rssi_inter;
+//         time_array_other_drones[id_inter_ext] = usecTimestamp();
+//         rssi_angle_array_other_drones[id_inter_ext] = rssi_angle_inter_ext;
 
-        // //Update filter for drones
-        update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
-
-
-
-
-      //   // FOR DEBUGGING //
-
-      //   // Print medFiltDrones
-      //   int result = update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
-      //   DEBUG_PRINT("For drone %i\n", id_inter_ext);
-      //   for (int i = 0; i < medFiltDrones[id_inter_ext].size; i++)
-      //   {
-      //     float temp = medFiltDrones[id_inter_ext].data[i];
-      //     DEBUG_PRINT("%i ", (int)temp);
-      //   }
-      //   DEBUG_PRINT("state_machine: Median result is %i\n", (int)result);
-
-      //   // Print RSSI checking
-      //   DEBUG_PRINT("Checking RSSI\n");
-      //   float rssi_inter_filtered = 140;
-      //   float rssi_this_id;
-      //   int i;
-      //   uint64_t address = configblockGetRadioAddress();
-      //   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
-      //   for (i = 0; i < my_id; i++) {
-      //     DEBUG_PRINT("For drone %i\n", i);
-      //     if (i % 2 != my_id % 2) {
-      //       rssi_this_id = get_median_filter_f(&medFiltDrones[i]);
-      //       DEBUG_PRINT("rssi_this_id = %d\n", (int)rssi_this_id);
-      //       if (rssi_this_id < rssi_collision_threshold && rssi_this_id > 0) {
-      //         rssi_inter_filtered = rssi_this_id;
-      //         DEBUG_PRINT("BREAK\n");
-      //         break;
-      //       }
-      //     }
-      //   }
-      // DEBUG_PRINT("rssi_inter_filtered = %d\n", (int)rssi_inter_filtered);
+//         // //Update filter for drones
+//         update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
 
 
 
-    }
+
+//       //   // FOR DEBUGGING //
+
+//       //   // Print medFiltDrones
+//       //   int result = update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
+//       //   DEBUG_PRINT("For drone %i\n", id_inter_ext);
+//       //   for (int i = 0; i < medFiltDrones[id_inter_ext].size; i++)
+//       //   {
+//       //     float temp = medFiltDrones[id_inter_ext].data[i];
+//       //     DEBUG_PRINT("%i ", (int)temp);
+//       //   }
+//       //   DEBUG_PRINT("state_machine: Median result is %i\n", (int)result);
+
+//       //   // Print RSSI checking
+//       //   DEBUG_PRINT("Checking RSSI\n");
+//       //   float rssi_inter_filtered = 140;
+//       //   float rssi_this_id;
+//       //   int i;
+//       //   uint64_t address = configblockGetRadioAddress();
+//       //   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
+//       //   for (i = 0; i < my_id; i++) {
+//       //     DEBUG_PRINT("For drone %i\n", i);
+//       //     if (i % 2 != my_id % 2) {
+//       //       rssi_this_id = get_median_filter_f(&medFiltDrones[i]);
+//       //       DEBUG_PRINT("rssi_this_id = %d\n", (int)rssi_this_id);
+//       //       if (rssi_this_id < rssi_collision_threshold && rssi_this_id > 0) {
+//       //         rssi_inter_filtered = rssi_this_id;
+//       //         DEBUG_PRINT("BREAK\n");
+//       //         break;
+//       //       }
+//       //     }
+//       //   }
+//       // DEBUG_PRINT("rssi_inter_filtered = %d\n", (int)rssi_inter_filtered);
 
 
 
-}
+//     }
 
-PARAM_GROUP_START(statemach)
-PARAM_ADD(PARAM_UINT8, keep_flying, &keep_flying)
-PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, corinit, &correctly_initialized)
-PARAM_GROUP_STOP(statemach)
 
-LOG_GROUP_START(statemach)
-LOG_ADD(LOG_UINT8, state, &state)
-LOG_ADD(LOG_UINT8, rssi_inter, &rssi_beacon)
-LOG_ADD(LOG_UINT8, rssi_beacon, &rssi_beacon_filtered)
-LOG_GROUP_STOP(statemach)
+
+// }
+
+// PARAM_GROUP_START(statemach)
+// PARAM_ADD(PARAM_UINT8, keep_flying, &keep_flying)
+// PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, corinit, &correctly_initialized)
+// PARAM_GROUP_STOP(statemach)
+
+// LOG_GROUP_START(statemach)
+// LOG_ADD(LOG_UINT8, state, &state)
+// LOG_ADD(LOG_UINT8, rssi_inter, &rssi_beacon)
+// LOG_ADD(LOG_UINT8, rssi_beacon, &rssi_beacon_filtered)
+// LOG_GROUP_STOP(statemach)
