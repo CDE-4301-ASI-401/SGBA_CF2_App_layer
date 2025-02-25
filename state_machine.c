@@ -220,9 +220,9 @@
    p_reply.size=5;
    //DEBUG_PRINT("appMain");
  
- #if METHOD!=1
-   static uint64_t radioSendBroadcastTime=0;
- #endif
+//  #if METHOD!=1
+//    static uint64_t radioSendBroadcastTime=0;
+//  #endif
  
    static uint64_t takeoffdelaytime = 0;
  
@@ -719,11 +719,11 @@
        is_flying = false;
      }
  
-     if ((usecTimestamp() >= radioSendBroadcastTime + 1000*500) && (is_flying == true)) {
-         radiolinkSendP2PPacketBroadcast(&p_reply);
-         radioSendBroadcastTime = usecTimestamp();
-         // DEBUG_PRINT("state_machine: Broadcasting RSSI\n");
-     }
+    //  if ((usecTimestamp() >= radioSendBroadcastTime + 1000*500) && (is_flying == true)) {
+    //      radiolinkSendP2PPacketBroadcast(&p_reply);
+    //      radioSendBroadcastTime = usecTimestamp();
+    //      // DEBUG_PRINT("state_machine: Broadcasting RSSI\n");
+    //  }
  
  #endif
      commanderSetSetpoint(&setpoint_BG, STATE_MACHINE_COMMANDER_PRI);
