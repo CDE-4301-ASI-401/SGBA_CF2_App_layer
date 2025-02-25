@@ -532,11 +532,8 @@
              //CF10 WF around straight wall at the end of the arena (right wf)
              //CF11 WF around "L" wall at the left side of the arena (left wf)
             uint8_t my_id_dec = my_id;
-           if (my_id > 9) {
-             my_id_dec = my_id - 6;
-           } else if (my_id > 19) {
-             my_id_dec = my_id - 12;
-           } 
+            my_id_dec = my_id - 6;
+            DEBUG_PRINT("id = %i\n", my_id);
 
            DEBUG_PRINT("id = %i\n", my_id_dec);
            if (my_id_dec==20){
