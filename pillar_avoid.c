@@ -69,8 +69,3 @@ static void radioTask(void *param) {
         vTaskDelay(10);
     }
 }
-
-void appMain(void) {
-    xTaskCreate(radioTask, "RadioListener", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
-    fly_forward_then_avoid();
-}

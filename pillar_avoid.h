@@ -12,7 +12,7 @@
 
 bool isObstacleAhead(void);
 void fly_forward_then_avoid(void);
-void appMain(void);
+// void appMain(void);
 static void land(setpoint_t *sp, float velocity);
 static void shut_off_engines(setpoint_t *sp);
 

@@ -253,33 +253,31 @@ void fly_forward_then_avoid(void) {
     commanderSetSetpoint(&sp, 5);
 }
 
-void appMain(void) {
-    fly_forward_then_avoid();
+void appMain(void *param)
+{
+  static struct MedianFilterFloat medFilt;
+  init_median_filter_f(&medFilt, 5);
+  static struct MedianFilterFloat medFilt_2;
+  init_median_filter_f(&medFilt_2, 5);
+  static struct MedianFilterFloat medFilt_3;
+  init_median_filter_f(&medFilt_3, 13);
+
+  //Init filters for each drone
+  for (uint8_t i = 0; i < 40; i++)
+    init_median_filter_f(&medFiltDrones[i], 5);
+
+  p2pRegisterCB(p2pcallbackHandler);
+  uint64_t address = configblockGetRadioAddress();
+  uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
+  static P2PPacket p_reply;
+  p_reply.port=0x00;
+  p_reply.data[0]=my_id;
+  memcpy(&p_reply.data[1], &rssi_angle, sizeof(float));
+  p_reply.size=5;
+  //DEBUG_PRINT("appMain");
+
+  fly_forward_then_avoid();
 }
-
-
-// void appMain(void *param)
-// {
-//   static struct MedianFilterFloat medFilt;
-//   init_median_filter_f(&medFilt, 5);
-//   static struct MedianFilterFloat medFilt_2;
-//   init_median_filter_f(&medFilt_2, 5);
-//   static struct MedianFilterFloat medFilt_3;
-//   init_median_filter_f(&medFilt_3, 13);
-
-//   //Init filters for each drone
-//   for (uint8_t i = 0; i < 40; i++)
-//     init_median_filter_f(&medFiltDrones[i], 5);
-
-//   p2pRegisterCB(p2pcallbackHandler);
-//   uint64_t address = configblockGetRadioAddress();
-//   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
-//   static P2PPacket p_reply;
-//   p_reply.port=0x00;
-//   p_reply.data[0]=my_id;
-//   memcpy(&p_reply.data[1], &rssi_angle, sizeof(float));
-//   p_reply.size=5;
-//   //DEBUG_PRINT("appMain");
 
 // #if METHOD!=1
 //   static uint64_t radioSendBroadcastTime=0;
