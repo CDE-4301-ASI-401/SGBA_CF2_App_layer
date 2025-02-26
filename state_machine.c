@@ -565,7 +565,7 @@ bool priority = true;
           //Drone 12,13,14 Left-WF; Drone 15,16,17 Right-WF; Drone 18,19 Left-WF
           // FOR DEMO 1 REPLACE 13 WITH 7, REPLACE 17 WITH 6
           DEBUG_PRINT("IM DRONE %d\n", my_id_dec);
-          if (my_id_dec==12 || my_id_dec==13 || my_id_dec==14 || my_id_dec==18 || my_id_dec==19  ) {
+          if (my_id_dec==5 || my_id_dec==7 || my_id_dec==9) {
             init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1); //LEFT-WF = -1
           } else {
             init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1); //RIGHT-WF = 1
