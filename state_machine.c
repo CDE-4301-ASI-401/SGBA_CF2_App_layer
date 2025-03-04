@@ -62,7 +62,10 @@ static uint8_t rssi_inter;
 static uint8_t rssi_inter_filtered;
 static uint8_t rssi_inter_closest;
 
+// Motion commander
 static bool command_reverse = false;
+static int command_tag = 0;
+static bool entered_unknown = false;
 
 float rssi_angle_inter_ext;
 float rssi_angle_inter_closest;
@@ -435,7 +438,7 @@ pos.x
     // Main flying code
     if (keep_flying) {
       if (taken_off) {
-        DEBUG_PRINT("POSITION:%.2f,%.2f,%.2f\n", (double)pos.x, (double)pos.y, (double)pos.z);
+        // DEBUG_PRINT("POSITION:%.2f,%.2f,%.2f\n", (double)pos.x, (double)pos.y, (double)pos.z);
         /*
          * If the flight is given a OK
          *  and the crazyflie has taken off
@@ -487,12 +490,22 @@ bool priority = true;
         else {
           drone_dist_from_wall = drone_dist_from_wall_2;
         }
-        DEBUG_PRINT("COMMAND REVERSE: %d\n",command_reverse);
+
+        // uint8_t my_id_dec = my_id;
+        // if (my_id > 7){
+        //   my_id_dec = my_id - 7;
+        // }
+        DEBUG_PRINT("Block: SGBA_controller\n");
+        // DEBUG_PRINT("My_id: %d\n",my_id);
+        // DEBUG_PRINT("My_id_dec: %d\n",my_id_dec);
+        // Wall distance, wall following direction, preferred angle 
         //TODO make outbound depended on battery.
         state = SGBA_controller(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, &rssi_angle, &state_wf, front_range,
                                              left_range, right_range, back_range, heading_rad,
-                                             (float)pos.x, (float)pos.y, rssi_beacon_filtered, rssi_inter_filtered, rssi_angle_inter_closest, priority, outbound, drone_dist_from_wall, command_reverse);
+                                             (float)pos.x, (float)pos.y, rssi_beacon_filtered, rssi_inter_filtered, rssi_angle_inter_closest, priority, outbound, drone_dist_from_wall, 
+                                             command_reverse, entered_unknown, command_tag, my_id);
         command_reverse = false;
+        command_tag = 0;
         memcpy(&p_reply.data[1],&rssi_angle, sizeof(float));
 
 
@@ -538,38 +551,28 @@ bool priority = true;
 
           // float angle_interval = (180.0f / (number_of_angles-1));
 
-          uint8_t my_id_dec = my_id;
-          my_id_dec = my_id - 6;
-          DEBUG_PRINT("id = %i\n", my_id);
 
-          // Testing
-          // float heading = -90.0f + angle_interval * (my_id_dec % number_of_angles);
-          // // float heading_180;
-          // if (heading >= 0) {
-          //   heading = (heading / 180 - (int)(heading / 180)) * 180;
-          // } else {
-          //   heading = (heading / 180 + (int)(heading / 180)) * 180;
+          DEBUG_PRINT("Block: init_SGBA_controller\n");
+          // DEBUG_PRINT("id = %i\n", my_id);
+          DEBUG_PRINT("Entered unknown: %d\n", entered_unknown);
+          
+          // heading for drone 4,5,6,7,8,9
+          // [NOTE FROM 3 MARCH], MAYBE THE INITIALIZATION OF SGBA PARAMETERS SHOULD BE DONE IN SGBA.C SINCE IT NEEDS TO COMPLETE THE SEQUENCE OF MOTION FIRST
+          // Initially all drones are left wall-following
+          init_SGBA_controller(0.5, drone_speed, 0, -1); //LEFT-WF = -1
+          // if (entered_unknown == false){ // Before entering unknown area
+          //   init_SGBA_controller(0.5, drone_speed, 0, -1); //LEFT-WF = -1
           // }
-
-          // 8 and 9 directions
-          // DEBUG_PRINT("heading = %.2f\n", (double)heading);
-          // if (my_id_dec % 2 == 1) {
-          //   init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1);
-          // } else {
-          //   init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1);
+          // else { // After entering unknown area
+          //   static float heading[6] = {135.0f, 45.0f, 180.0f,  90.0f, -135.0f, 135.0f};
+          //   if (my_id==4 || my_id==6 || my_id==8) {
+          //     DEBUG_PRINT("Line 568\n");
+          //     init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading[my_id-4], -1); //LEFT-WF = -1
+          //   } else {
+          //     DEBUG_PRINT("LINE 571\n");
+          //     init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading[my_id-4], 1); //RIGHT-WF = 1
+          //   }
           // }
-
-          static float heading = 0.0f;
-          // static float heading[15] = { -69.0f, -48.0f, -27.0f, -6.0f, 15.0f, 36.0f, 57.0f, 78.0f, -66.0f, -42.0f, -18.0f, 6.0f, 30.0f, 54.0f, 78.0f};
-          // DEBUG_PRINT("heading = %.2f\n", (double)heading);
-          //Drone 12,13,14 Left-WF; Drone 15,16,17 Right-WF; Drone 18,19 Left-WF
-          // FOR DEMO 1 REPLACE 13 WITH 7, REPLACE 17 WITH 6
-          DEBUG_PRINT("IM DRONE %d\n", my_id_dec);
-          if (my_id_dec==12 || my_id_dec==13 || my_id_dec==14 || my_id_dec==18 || my_id_dec==19  ) {
-            init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1); //LEFT-WF = -1
-          } else {
-            init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1); //RIGHT-WF = 1
-          }
           
 
 #endif
@@ -714,14 +717,15 @@ bool priority = true;
 void p2pcallbackHandler(P2PPacket *p)
 {
     id_inter_ext = p->data[0];
-    //DEBUG_PRINT("receive packet \n");
-
+    DEBUG_PRINT("receive packet \n");
+    uint64_t address = configblockGetRadioAddress(); 
+    uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
 
     if (id_inter_ext == 0x63)
     {
         // get the drone's ID
-        uint64_t address = configblockGetRadioAddress(); 
-        uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+        // uint64_t address = configblockGetRadioAddress(); 
+        // uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
 
         //if 3rd byte of packet = 0xff or = drone's ID
         if (p->data[2] == 0xff || p->data[2] == my_id) 
@@ -750,10 +754,10 @@ void p2pcallbackHandler(P2PPacket *p)
         rssi_beacon =p->rssi;
 
     }
-    else if(id_inter_ext == 0x70){
+    else if(id_inter_ext == 0x70){ // Reverse command
       // get the drone's ID
-      uint64_t address = configblockGetRadioAddress(); 
-      uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+      // uint64_t address = configblockGetRadioAddress(); 
+      // uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
       if (p->data[2] == 0xff || p->data[2] == my_id) 
         {
         uint64_t currentTime = usecTimestamp();
@@ -764,10 +768,99 @@ void p2pcallbackHandler(P2PPacket *p)
           last_command = currentTime;
         }
         else{ //ignore subsequent commands
-          DEBUG_PRINT("MOTION COMMAND IGNORED\n");
+          DEBUG_PRINT("MOTION COMMAND [reverse] IGNORED\n");
         }
       }
     }
+    // ---------------------- Nav Aid Command ----------------------------------//
+  /***********************************************************
+   * Tag command definitions
+   ***********************************************************/
+    // 1 = Continue straight forward
+    // 2 = Turn left and continue forward
+    // 3 = Turn left, go forward, and start SGBA
+
+
+    else if(id_inter_ext == 0x71){ // Radio command from Tag A
+      // get the drone's ID
+      // uint64_t address = configblockGetRadioAddress(); 
+      // uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+      if (my_id == 4 || my_id== 6||my_id == 8){
+        DEBUG_PRINT("Group 1 Drone\n");
+        uint64_t currentTime = usecTimestamp();
+        uint64_t delta = (currentTime-last_command)/1e6;
+        if (delta>5){ //new command (5 seconds)
+          if (p->data[1]){
+            DEBUG_PRINT("state_machine: Received TAG_1 command [command_tag=1]\n");
+            command_tag = 1;
+            last_command = currentTime;
+          }
+        }
+        else{ //ignore subsequent commands
+          DEBUG_PRINT("MOTION COMMAND [TAG_1] IGNORED\n");
+        }
+      } else if (my_id == 5 || my_id== 7||my_id == 9){
+        DEBUG_PRINT("Group 2 Drone\n");
+        uint64_t currentTime = usecTimestamp();
+        uint64_t delta = (currentTime-last_command)/1e6;
+        if (delta>5){ //new command (5 seconds)
+          if (p->data[1]){
+            DEBUG_PRINT("state_machine: Received TAG_1 command [command_tag=3]\n");
+            command_tag = 3;
+            last_command = currentTime;
+          }
+        }
+        else{ //ignore subsequent commands
+          DEBUG_PRINT("MOTION COMMAND [TAG_1] IGNORED\n");
+        }
+      }
+      else{ //ignore subsequent commands
+        DEBUG_PRINT("Im NOT unknown drone: MOTION COMMAND [TAG_1] IGNORED\n");
+      }
+    }
+
+    else if(id_inter_ext == 0x72){ // Radio command from Tag B
+      // get the drone's ID
+      uint64_t address = configblockGetRadioAddress(); 
+      uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+      if (p->data[2] == 0xff || p->data[2] == my_id) 
+        {
+        uint64_t currentTime = usecTimestamp();
+        uint64_t delta = (currentTime-last_command)/1e6;
+        if (delta>5){ //new command (5 seconds)
+          DEBUG_PRINT("state_machine: Received TAG_2 command\n");
+          if (p->data[1]){
+            command_tag = 2;
+            last_command = currentTime;
+          }
+        }
+        else{ //ignore subsequent commands
+          DEBUG_PRINT("MOTION COMMAND [TAG_2] IGNORED\n");
+        }
+      }
+    }
+    else if(id_inter_ext == 0x73){ // Radio command from Tag C
+      // get the drone's ID
+      uint64_t address = configblockGetRadioAddress(); 
+      uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+      if (p->data[2] == 0xff || p->data[2] == my_id) 
+        {
+        uint64_t currentTime = usecTimestamp();
+        uint64_t delta = (currentTime-last_command)/1e6;
+        if (delta>5){ //new command (5 seconds)
+          DEBUG_PRINT("state_machine: Received TAG_2 command\n");
+          if (p->data[1]){
+            command_tag = 3;
+            entered_unknown = true;
+            last_command = currentTime;
+          }
+        }
+        else{ //ignore subsequent commands
+          DEBUG_PRINT("MOTION COMMAND [TAG_2] IGNORED\n");
+        }
+      }
+    }
+    //---------------------------------------------------------------------//
     else{
         rssi_inter = p->rssi;
         DEBUG_PRINT("state_machine: Received RSSI is %i\n", rssi_inter);

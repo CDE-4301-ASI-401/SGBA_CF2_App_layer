@@ -6,6 +6,7 @@
  */
 #include "SGBA.h"
 #include "wallfollowing_multiranger_onboard.h"
+// #include "drone_variables.h"
 #define __USE_MISC
 #include <math.h>
 #include <stdlib.h>
@@ -152,7 +153,6 @@ static float fillHeadingArray(uint8_t *correct_heading_array, float rssi_heading
 
       //sum += heading_array[it];
       count = count + correct_heading_array[it];
-
     }
   }
   float wanted_angle_return = 0;
@@ -177,14 +177,15 @@ void init_SGBA_controller(float new_ref_distance_from_wall, float max_speed_ref,
   wanted_angle = deg2rad(begin_wanted_heading);
   wanted_heading = begin_wanted_heading;
   local_direction = starting_local_direction;
-  first_run = true;
+  // first_run = true;
 }
 
 
 int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle, int *state_wallfollowing,
                                  float front_range, float left_range, float right_range, float back_range,
                                  float current_heading, float current_pos_x, float current_pos_y, uint8_t rssi_beacon,
-                                 uint8_t rssi_inter, float rssi_angle_inter, bool priority, bool outbound, float drone_dist_from_wall, bool command_reverse)
+                                 uint8_t rssi_inter, float rssi_angle_inter, bool priority, bool outbound, float drone_dist_from_wall, 
+                                 bool command_reverse, bool entered_unknown, int command_tag, uint8_t my_id)
 {
 
   // Initalize static variables
@@ -245,12 +246,14 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
   /***********************************************************
    * Handle state transitions
    ***********************************************************/
-  DEBUG_PRINT("front range: %f,  left range: %f, right range: %f\n", (double)front_range, (double)left_range, (double)right_range);
+  // DEBUG_PRINT("front range: %f,  left range: %f, right range: %f\n", (double)front_range, (double)left_range, (double)right_range);
   
   if (state == 1) {     //FORWARD
     DEBUG_PRINT("SGBA_FORWARD\n");
+
+    // Rotate wanted angle by 180 degs and rotate to new wanted angle
     if (command_reverse){
-      DEBUG_PRINT("COMMAND REVERSE\n");
+      DEBUG_PRINT("Motion Command: REVERSE\n");
       if (local_direction == 1) {
         wanted_angle += wraptopi((float)M_PI);
       }
@@ -259,8 +262,31 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
       }
       state = transition(2); //rotate_to_goal
     }
-    else{
+  /***********************************************************
+   * Tag command definitions
+   ***********************************************************/
+    // 1 = Continue straight forward
+    // 2 = Turn left and continue forward
+    // 3 = Turn left, go forward, and start SGBA
 
+    //---------------------------------------------------- SGBA: COMMAND TAG HANDLER ---------------------------------------------------- //
+    else if (command_tag != 0){
+      if (command_tag == 1){ //Continue move straight forward
+        DEBUG_PRINT("Motion Command: Tag_Command_1 in SGBA\n");
+      }
+      else if (command_tag == 2){ //Turn left and continue forward
+        DEBUG_PRINT("Motion Command: Tag_Command_2 in SGBA\n");
+        wanted_angle += (float)M_PI/2.0f; 
+        wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+        state = transition(2);
+      }
+      else if (command_tag == 3){ //Turn left and enter unknown area
+        DEBUG_PRINT("Motion Command: Tag_Command_3 in SGBA\n");
+        state = transition(5);
+      }
+    }
+    //---------------------------------------------------------------------------------------------------------------------------- //
+    else{
     if (front_range < ref_distance_from_wall + drone_dist_from_wall_to_start_margin) {
       if (overwrite_and_reverse_direction) {
       // direction = -1.0f * direction;
@@ -337,6 +363,26 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
     }
   } else if (state == 3) {      //WALL_FOLLOWING
     DEBUG_PRINT("SGBA_WALL_FOLLOWING\n");
+  //---------------------------------------------------- WF: COMMAND TAG HANDLER ---------------------------------------------------- //
+    if (command_tag != 0){
+      if (command_tag == 1){
+        DEBUG_PRINT("Motion Command: TAG_Command_1 in WF");
+        wanted_angle -= wraptopi((float)M_PI/9);
+        state = transition(2);
+      if (command_tag == 2){
+        DEBUG_PRINT("Motion Command: TAG_Command_2 in WF");
+        wanted_angle += wraptopi((float)M_PI/2.0f); 
+        wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+        state = transition(2);
+      }
+      }else if(command_tag == 3){
+        DEBUG_PRINT("Motion Command: Tag_Command_3 in WF");
+        state = transition(5);
+        
+      }
+    }
+    //------------------------------------------------------------------------------------------------------------------------------
+
     // if another drone is close and there is no right of way, move out of the way
     if (priority == false && rssi_inter < rssi_collision_threshold) {
       if (outbound) {
@@ -348,10 +394,9 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
       }
       if (rssi_inter < rssi_collision_threshold) {
         state = transition(4);
-
       }
     }
-
+  
     // If going forward with wall following and cannot_go_to_goal bool is still on
     //    turn it off!
     if (state_wf == 5 && cannot_go_to_goal) {
@@ -453,10 +498,8 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
   } else if (state == 4) {    //MOVE_OUT_OF_WAY
     // once the drone has gone by, rotate to goal
     if (rssi_inter >= rssi_collision_threshold) {
-
       state = transition(2); //rotate_to_goal
     }
-
   }
 
 
@@ -484,8 +527,10 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
   } else  if (state == 2) {  //ROTATE_TO_GOAL
     // rotate to goal, determined on the sign
     if (wanted_angle_dir < 0) {
+      DEBUG_PRINT("Rotate to goal: +0.5\n");
       commandTurn(&temp_vel_w, 0.5);
     } else {
+      DEBUG_PRINT("Rotate to goal: -0.5\n");
       commandTurn(&temp_vel_w, -0.5);
     }
 
@@ -513,8 +558,42 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
       temp_vel_x = temp_vel_x + 0.1f;
     }
 
+  } else if (state == 5) {  // ROTATE LEFT TOWARDS UNKNOWN AREA (Rotate 90deg counter-clockwise)
+      DEBUG_PRINT("Command_Tag_3: Turning left...\n");
+      temp_vel_x = 0.0f;
+      temp_vel_y = 0.0f;
+      temp_vel_w = 0.5f;
+      float current_time = usecTimestamp() / 1e6;
+      if (current_time - state_start_time >= ((float)M_PI / 2.0f) / 0.5f) {
+        state = transition(6);
+      }
+  } else if (state == 6){ // MOVE FORWARD INTO UNKNOWN AREA
+      DEBUG_PRINT("Command_Tag_3: Moving Forward...\n");
+      temp_vel_x = max_speed;
+      temp_vel_y = 0.0f;
+      temp_vel_w = 0.0f;
+      float current_time = usecTimestamp() / 1e6;
+      if (current_time - state_start_time >= 1.5f/max_speed) { //s = d/t ; t = 0.8[m]/max_speed
+        DEBUG_PRINT("Command_Tag_3: Movements completed (Going to state 2, rotating to goal)...\n");
+        static float heading[6] = {135.0f, 45.0f, 180.0f,  90.0f, -135.0f, 135.0f};
+        
+        // Redefine SGBA parameters 
+        if (my_id==4 || my_id==6 || my_id==8) {
+          DEBUG_PRINT("Initialize SGBA group B drones\n");
+          ref_distance_from_wall = drone_dist_from_wall_1; 
+          wanted_angle = deg2rad(heading[my_id-4]);
+          local_direction = -1; // LEFT-WF = -1 
+          wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+        } else {
+          DEBUG_PRINT("Initialize SGBA group A drones\n");
+          ref_distance_from_wall = drone_dist_from_wall_2; 
+          wanted_angle = deg2rad(heading[my_id-4]);
+          local_direction = +1; // RIGHT-WF = +1
+          wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+        }
+        state = transition(2); 
+      }
   }
-
 
   *rssi_angle = wanted_angle;
   *state_wallfollowing = state_wf;
