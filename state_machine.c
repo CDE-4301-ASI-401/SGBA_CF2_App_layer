@@ -399,8 +399,9 @@ void appMain(void *param)
          keep_flying = 0;
        }
 #else
-       if (keep_flying == true && (!correctly_initialized || up_range < 0.2f)) {
+       if (keep_flying == true && (!correctly_initialized || up_range < 0.3f)) {
          keep_flying = 0;
+         DEBUG_PRINT("LINE 404\n");
        }
 #endif
 

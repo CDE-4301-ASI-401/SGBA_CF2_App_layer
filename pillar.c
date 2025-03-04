@@ -4,8 +4,11 @@
 
 // Variables
 static float distance_from_pillar = 0.5f;
-static float max_speed = 0.5f;
+static float max_speed = 0.3f;
 static float max_turn_speed = 0.5f;
+static bool zigzag = false;
+static float zigzagRate = 0.5f;
+#define maxZigzagOffset 10
 
 // Converts degrees to radians.
 #define deg2rad(angleDegrees) (angleDegrees * (float)M_PI / 180.0f)
@@ -64,10 +67,18 @@ int pillar_controller(float *vel_x, float *vel_y, float *vel_w,
                             float currentHeading, float currentPosX, float currentPosY)
 {
     // Initialize static variables
+    static bool firstRun = true;
     static int state = 1;
     static int turnDirection = 1; // 1 = left, -1 = right
     static float forwardHeading = 0; // heading of forward direction
     static float targetHeading = 0; // target heading when turn required
+    static float zigzagOffset = 0; // offset for zigzagging
+    static int zigzagDirection = 1; // 1 = left, -1 = right
+
+    if (firstRun) {
+        forwardHeading = currentHeading;
+        firstRun = false;
+    }
 
     /***********************************************************
      * Handle state transitions
@@ -75,8 +86,8 @@ int pillar_controller(float *vel_x, float *vel_y, float *vel_w,
     if (state == 1) {     //FORWARD
         if (frontRange < distance_from_pillar) {
             state = transition(2); //rotate away from obstacle
-            targetHeading = wraptopi(currentHeading + deg2rad(90 * turnDirection));
-        }
+            targetHeading = wraptopi(forwardHeading + deg2rad(90 * turnDirection));
+        } 
     } else if (state == 2) { //ROTATE AWAY FROM OBSTACLE
         if (logicIsCloseTo(wraptopi(currentHeading - targetHeading), 0, 0.1f)) {
             state = transition(3); //wall following
@@ -96,6 +107,9 @@ int pillar_controller(float *vel_x, float *vel_y, float *vel_w,
     } else if (state == 4) { //ROTATE BACK TO FORWARD DIRECTION
         if (logicIsCloseTo(wraptopi(currentHeading - targetHeading), 0, 0.1f)) {
             state = transition(1); // forward
+            forwardHeading = currentHeading;
+            zigzagOffset = 0;
+            zigzagDirection = -1;
             turnDirection *= -1;
         }
     }
@@ -110,7 +124,14 @@ int pillar_controller(float *vel_x, float *vel_y, float *vel_w,
 
     if (state == 1) {        //FORWARD
         temp_vel_x = max_speed;
-        forwardHeading = currentHeading;
+        if (zigzag) {
+          commandTurn(&temp_vel_w, zigzagRate * zigzagDirection);
+          if (zigzagDirection == 1 && currentHeading > forwardHeading + deg2rad(maxZigzagOffset)) { // reverse direction if further than offset
+            zigzagDirection = -1;
+          } else if (zigzagDirection == -1 && currentHeading < forwardHeading - deg2rad(maxZigzagOffset)) {
+            zigzagDirection = 1;
+          }
+        }
     } else if (state == 2) { // ROTATE AWAY FROM OBSTACLE
         commandTurn(&temp_vel_w, max_turn_speed * turnDirection);
     } else if (state == 3) { // WALL FOLLOWING
