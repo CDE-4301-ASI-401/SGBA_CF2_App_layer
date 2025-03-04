@@ -29,6 +29,7 @@
 #include "wallfollowing_with_avoid.h"
 #include "SGBA.h"
 #include "usec_time.h"
+#include "pillar.c"
 
 #include "range.h"
 #include "radiolink.h"
@@ -54,7 +55,8 @@ static bool taken_off = false;
 //2=wall following with avoid: This also follows walls but will move away if another crazyflie with an lower ID is coming close, 
 //3=SGBA: The SGBA method that incorperates the above methods.
 //        NOTE: the switching between outbound and inbound has not been implemented yet
-#define METHOD 2
+//4 = pillar: The pillar method that will fly around a pillar
+#define METHOD 4
 
 
 void p2pcallbackHandler(P2PPacket *p);
@@ -496,6 +498,13 @@ bool priority = true;
         memcpy(&p_reply.data[1],&rssi_angle, sizeof(float));
 
 
+#endif
+
+#if METHOD==4 // PILLAR
+        state = pillar_controller(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, 
+                                  front_range, left_range, right_range, 
+                                  heading_rad, (float)pos.x, (float)pos.y);
+        DEBUG_PRINT("Transitioning to state %d\n", state);
 
 #endif
 
@@ -666,7 +675,7 @@ bool priority = true;
         {
           DEBUG_PRINT("LANDING\n");
           vTaskDelay(1800);
-          land(&setpoint_BG, 0.75f);
+          land(&setpoint_BG, 0.3f);
           if (height < 0.1f) {
             shut_off_engines(&setpoint_BG);
             taken_off = false;

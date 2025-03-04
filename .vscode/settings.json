@@ -1,5 +1,8 @@
 {
     "files.associations": {
-        "drone_variables.h": "c"
+        "drone_variables.h": "c",
+        "estimator_kalman.h": "c",
+        "debug.h": "c",
+        "system.h": "c"
     }
 }
