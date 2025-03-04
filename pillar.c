@@ -8,6 +8,7 @@ static float max_speed = 0.3f;
 static float max_turn_speed = 0.5f;
 static bool zigzag = false;
 static float zigzagRate = 0.5f;
+static float pillar_margin = 0.15f;
 #define maxZigzagOffset 10
 
 // Converts degrees to radians.
@@ -89,7 +90,7 @@ int pillar_controller(float *vel_x, float *vel_y, float *vel_w,
             targetHeading = wraptopi(forwardHeading + deg2rad(90 * turnDirection));
         } 
     } else if (state == 2) { //ROTATE AWAY FROM OBSTACLE
-        if (logicIsCloseTo(wraptopi(currentHeading - targetHeading), 0, 0.1f)) {
+        if (logicIsCloseTo(wraptopi(currentHeading - targetHeading), 0, pillar_margin)) {
             state = transition(3); //wall following
         }
     } else if (state == 3) { //WALL FOLLOWING
