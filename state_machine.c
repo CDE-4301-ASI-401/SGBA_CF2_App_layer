@@ -438,7 +438,7 @@ pos.x
     // Main flying code
     if (keep_flying) {
       if (taken_off) {
-        DEBUG_PRINT("POSITION:%.2f,%.2f,%.2f\n", (double)pos.x, (double)pos.y, (double)pos.z);
+        //DEBUG_PRINT("POSITION:%.2f,%.2f,%.2f\n", (double)pos.x, (double)pos.y, (double)pos.z);
         /*
          * If the flight is given a OK
          *  and the crazyflie has taken off
@@ -504,8 +504,10 @@ bool priority = true;
 #if METHOD==4 // PILLAR
         state = pillar_controller(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, 
                                   front_range, left_range, right_range, 
-                                  heading_rad, (float)pos.x, (float)pos.y);
-        DEBUG_PRINT("Transitioning to state %d\n", state);
+                                  heading_rad, (float)pos.x, (float)pos.y,
+                                  command_reverse);
+        command_reverse = false;
+        //DEBUG_PRINT("Transitioning to state %d\n", state);
 
 #endif
 
@@ -726,7 +728,7 @@ bool priority = true;
 void p2pcallbackHandler(P2PPacket *p)
 {
     id_inter_ext = p->data[0];
-    //DEBUG_PRINT("receive packet \n");
+    DEBUG_PRINT("receive packet \n");
 
 
     if (id_inter_ext == 0x63)
