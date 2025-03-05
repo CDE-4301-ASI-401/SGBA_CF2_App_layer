@@ -24,5 +24,7 @@ float rssi_reset_interval = 3.0;
 float nominal_height = 0.8;
 // float CA_height = 1.3;
 
+int turnDirection = 1; // 1 = left, -1 = right
+
 // SGBA VARIABLES
 // int number_of_angles = 5; // number of preferred directions for drone to follow

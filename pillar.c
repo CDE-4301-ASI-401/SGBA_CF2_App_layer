@@ -3,12 +3,11 @@
 //#include "debug.h"
 
 // Variables
-static float distance_from_pillar = 0.5f;
-static float max_speed = 0.3f;
+static float distance_from_pillar = 0.60f;
+static float max_speed = 0.25f;
 static float max_turn_speed = 0.5f;
 static bool zigzag = false;
 static float zigzagRate = 0.5f;
-static float pillar_margin = 0.15f;
 #define maxZigzagOffset 10
 #define CRITICAL_DISTANCE 0.2f
 
@@ -101,17 +100,19 @@ int pillar_controller(float *vel_x, float *vel_y, float *vel_w,
             state = transition(1); // forward
         }
     } else if (state == 2) { //ROTATE AWAY FROM OBSTACLE
-        if (logicIsCloseTo(wraptopi(currentHeading - targetHeading), 0, pillar_margin)) {
+        if (logicIsCloseTo(wraptopi(currentHeading - targetHeading), 0, 0.1f)) {
             state = transition(3); //wall following
         }
     } else if (state == 3) { //WALL FOLLOWING
         if (turnDirection == 1) {
             if (rightRange > distance_from_pillar) {
+                vTaskDelay(1000);
                 targetHeading = wraptopi(currentHeading + deg2rad(90 * -turnDirection));
                 state = transition(4); //rotate back to forward direction
             }
         } else {
             if (leftRange > distance_from_pillar) {
+                vTaskDelay(1000);
                 targetHeading = wraptopi(currentHeading + deg2rad(90 * -turnDirection));
                 state = transition(4); //rotate back to forward direction
             }
