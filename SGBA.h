@@ -15,6 +15,6 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
                                  float front_range, float left_range, float right_range, float back_range,
                                  float current_heading, float current_pos_x, float current_pos_y, uint8_t rssi_beacon,
                                  uint8_t rssi_inter, float rssi_angle_inter, bool priority, bool outbound, float drone_dist_from_wall, 
-                                 bool command_reverse, bool entered_unknown, int command_tag, uint8_t my_id);
+                                 bool command_reverse, int command_tag, uint8_t my_id);
 
 #endif /* SRC_LIB_WALLFOLLOWING_MULTIRANGER_ONBOARD_COM_BUG_WITH_LOOPING_H_ */

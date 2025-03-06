@@ -18,7 +18,8 @@ extern float ranger_limit;
 
 extern int rssi_collision_threshold;
 extern float rssi_reset_interval;
-extern float nominal_height;
+extern float nominal_height_A;
+extern float nominal_height_B;
 // extern float CA_height;
 extern int number_of_angles;
 

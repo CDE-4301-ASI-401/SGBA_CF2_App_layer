@@ -29,6 +29,7 @@ static bool first_time_state_wf_3 = true;
 static uint64_t wf3_current_time = 0;
 static uint64_t wf3_duration = 0;
 static uint64_t wf3_threshold = 1000 * 1000 * 18;
+static bool entered_unknown = false;
 
 /*
 //Make variable
@@ -185,7 +186,7 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
                                  float front_range, float left_range, float right_range, float back_range,
                                  float current_heading, float current_pos_x, float current_pos_y, uint8_t rssi_beacon,
                                  uint8_t rssi_inter, float rssi_angle_inter, bool priority, bool outbound, float drone_dist_from_wall, 
-                                 bool command_reverse, bool entered_unknown, int command_tag, uint8_t my_id)
+                                 bool command_reverse, int command_tag, uint8_t my_id)
 {
 
   // Initalize static variables
@@ -271,18 +272,24 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
 
     //---------------------------------------------------- SGBA: COMMAND TAG HANDLER ---------------------------------------------------- //
     else if (command_tag != 0){
-      if (command_tag == 1){ //Continue move straight forward
-        DEBUG_PRINT("Motion Command: Tag_Command_1 in SGBA\n");
-      }
-      else if (command_tag == 2){ //Turn left and continue forward
-        DEBUG_PRINT("Motion Command: Tag_Command_2 in SGBA\n");
-        wanted_angle += (float)M_PI/2.0f; 
+      if (entered_unknown == false){
+        if (command_tag == 1){ //Continue move straight forward
+          DEBUG_PRINT("Motion Command: Tag_Command_1 in SGBA\n");
+        }
+        else if (command_tag == 2){ //Turn left and continue forward
+          DEBUG_PRINT("Motion Command: Tag_Command_2 in SGBA\n");
+          wanted_angle += (float)M_PI/2.0f; 
+          wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+          state = transition(2);
+        }
+        else if (command_tag == 3){ //Turn left and enter unknown area
+          DEBUG_PRINT("Motion Command: Tag_Command_3 in SGBA\n");
+          state = transition(5);
+        }
+    } else{
+        wanted_angle += wraptopi(3*(float)M_PI/4);
         wanted_angle_dir = wraptopi(current_heading - wanted_angle);
         state = transition(2);
-      }
-      else if (command_tag == 3){ //Turn left and enter unknown area
-        DEBUG_PRINT("Motion Command: Tag_Command_3 in SGBA\n");
-        state = transition(5);
       }
     }
     //---------------------------------------------------------------------------------------------------------------------------- //
@@ -365,22 +372,29 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
     DEBUG_PRINT("SGBA_WALL_FOLLOWING\n");
   //---------------------------------------------------- WF: COMMAND TAG HANDLER ---------------------------------------------------- //
     if (command_tag != 0){
-      if (command_tag == 1){
-        DEBUG_PRINT("Motion Command: TAG_Command_1 in WF");
-        wanted_angle -= wraptopi((float)M_PI/9);
-        state = transition(2);
-      if (command_tag == 2){
-        DEBUG_PRINT("Motion Command: TAG_Command_2 in WF");
-        wanted_angle += wraptopi((float)M_PI/2.0f); 
-        wanted_angle_dir = wraptopi(current_heading - wanted_angle);
-        state = transition(2);
-      }
-      }else if(command_tag == 3){
-        DEBUG_PRINT("Motion Command: Tag_Command_3 in WF");
-        state = transition(5);
-        
-      }
+      if (entered_unknown == false){
+        if (command_tag == 1){
+          DEBUG_PRINT("Motion Command: TAG_Command_1 in WF");
+          wanted_angle -= wraptopi((float)M_PI/6);
+          wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+          state = transition(2);
+        if (command_tag == 2){
+          DEBUG_PRINT("Motion Command: TAG_Command_2 in WF");
+          wanted_angle += wraptopi((float)M_PI/2.0f); 
+          wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+          state = transition(2);
+        }
+        }else if(command_tag == 3){
+          DEBUG_PRINT("Motion Command: Tag_Command_3 in WF");
+          state = transition(5);
+          
+        }
+    } else {
+      wanted_angle += wraptopi(3*(float)M_PI/4);
+      wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+      state = transition(2);
     }
+  }
     //------------------------------------------------------------------------------------------------------------------------------
 
     // if another drone is close and there is no right of way, move out of the way
@@ -528,10 +542,10 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
     // rotate to goal, determined on the sign
     if (wanted_angle_dir < 0) {
       DEBUG_PRINT("Rotate to goal: +0.5\n");
-      commandTurn(&temp_vel_w, 0.5);
+      commandTurn(&temp_vel_w, 0.4);
     } else {
       DEBUG_PRINT("Rotate to goal: -0.5\n");
-      commandTurn(&temp_vel_w, -0.5);
+      commandTurn(&temp_vel_w, -0.4);
     }
 
 
@@ -584,12 +598,14 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
           wanted_angle = deg2rad(heading[my_id-4]);
           local_direction = -1; // LEFT-WF = -1 
           wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+          entered_unknown = true;
         } else {
           DEBUG_PRINT("Initialize SGBA group A drones\n");
           ref_distance_from_wall = drone_dist_from_wall_2; 
           wanted_angle = deg2rad(heading[my_id-4]);
           local_direction = +1; // RIGHT-WF = +1
           wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+          entered_unknown = true;
         }
         state = transition(2); 
       }

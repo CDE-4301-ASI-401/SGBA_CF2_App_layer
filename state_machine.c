@@ -45,9 +45,11 @@ static bool is_flying = false;
 static bool move_away_from_walls = false;
 const float MIN_DISTANCE = 1.0; // m
 
+
 float height;
 
 static bool taken_off = false;
+
 
 // Switch to multiple methods, that increases in complexity 
 //1= wall_following: Go forward and follow walls with the multiranger 
@@ -227,6 +229,14 @@ void appMain(void *param)
 // #if METHOD!=1
 //   static uint64_t radioSendBroadcastTime=0;
 // #endif
+static float nominal_height;
+if (my_id == 5 || my_id ==7 || my_id==9){ //Group B drones
+  nominal_height = nominal_height_B;
+}
+else{
+  nominal_height = nominal_height_A;
+}
+
 
   static uint64_t takeoffdelaytime = 0;
 
@@ -500,10 +510,11 @@ bool priority = true;
         // DEBUG_PRINT("My_id_dec: %d\n",my_id_dec);
         // Wall distance, wall following direction, preferred angle 
         //TODO make outbound depended on battery.
+        DEBUG_PRINT("Entered Unknown: %d\n", entered_unknown);
         state = SGBA_controller(&vel_x_cmd, &vel_y_cmd, &vel_w_cmd, &rssi_angle, &state_wf, front_range,
                                              left_range, right_range, back_range, heading_rad,
                                              (float)pos.x, (float)pos.y, rssi_beacon_filtered, rssi_inter_filtered, rssi_angle_inter_closest, priority, outbound, drone_dist_from_wall, 
-                                             command_reverse, entered_unknown, command_tag, my_id);
+                                             command_reverse, command_tag, my_id);
         command_reverse = false;
         command_tag = 0;
         memcpy(&p_reply.data[1],&rssi_angle, sizeof(float));
@@ -780,85 +791,99 @@ void p2pcallbackHandler(P2PPacket *p)
     // 2 = Turn left and continue forward
     // 3 = Turn left, go forward, and start SGBA
 
+    else if(id_inter_ext == 0x71 || id_inter_ext == 0x72 || id_inter_ext == 0x73 ){ // Radio command from Tag A,B, or C
+      uint64_t currentTime = usecTimestamp();
+      uint64_t delta = (currentTime-last_command)/1e6;
+      if (entered_unknown == false){
+        // Tag A
+        if (id_inter_ext == 0x71){ 
+          if (my_id == 4 || my_id== 6||my_id == 8){ // Group A drones
+            DEBUG_PRINT("Group 1 Drone\n");
+            if (delta>5){ //new command (5 seconds)
+              if (p->data[1]){
+                DEBUG_PRINT("state_machine: Received TAG_1 command [command_tag=1]\n");
+                command_tag = 1;
+                last_command = currentTime;
+              }
+            }
+            else{ //ignore subsequent commands
+              DEBUG_PRINT("MOTION COMMAND [TAG_1] IGNORED\n");
+            }
+        }
+        else if (my_id == 5 || my_id== 7||my_id == 9){ // Group B drones
+          DEBUG_PRINT("Group 2 Drone\n");
+          if (delta>5){ //new command (5 seconds)
+            if (p->data[1]){
+              DEBUG_PRINT("state_machine:  TAG_1 command [command_tag=3]\n");
+              command_tag = 3;
+              entered_unknown = true;
+              last_command = currentTime;
+            }
+          }
+          else{ //ignore subsequent command
+            DEBUG_PRINT("MOTION COMMAND [TAG_1] IGNORED\n");
+          }
+        }
+        else{ // ignore command
+          DEBUG_PRINT("Im NOT unknown drone: MOTION COMMAND [TAG_1] IGNORED\n");
+      }
+    }
 
-    else if(id_inter_ext == 0x71){ // Radio command from Tag A
-      // get the drone's ID
-      // uint64_t address = configblockGetRadioAddress(); 
-      // uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
-      if (my_id == 4 || my_id== 6||my_id == 8){
-        DEBUG_PRINT("Group 1 Drone\n");
-        uint64_t currentTime = usecTimestamp();
-        uint64_t delta = (currentTime-last_command)/1e6;
-        if (delta>5){ //new command (5 seconds)
-          if (p->data[1]){
-            DEBUG_PRINT("state_machine: Received TAG_1 command [command_tag=1]\n");
-            command_tag = 1;
-            last_command = currentTime;
-          }
-        }
-        else{ //ignore subsequent commands
-          DEBUG_PRINT("MOTION COMMAND [TAG_1] IGNORED\n");
-        }
-      } else if (my_id == 5 || my_id== 7||my_id == 9){
-        DEBUG_PRINT("Group 2 Drone\n");
-        uint64_t currentTime = usecTimestamp();
-        uint64_t delta = (currentTime-last_command)/1e6;
-        if (delta>5){ //new command (5 seconds)
-          if (p->data[1]){
-            DEBUG_PRINT("state_machine: Received TAG_1 command [command_tag=3]\n");
-            command_tag = 3;
-            last_command = currentTime;
-          }
-        }
-        else{ //ignore subsequent commands
-          DEBUG_PRINT("MOTION COMMAND [TAG_1] IGNORED\n");
+    // Command Tag B
+    else if (id_inter_ext == 0x72){
+      if (delta>5){ //new command (5 seconds)
+        DEBUG_PRINT("state_machine: Received TAG_2 command\n");
+        if (p->data[1]){
+          command_tag = 2;
+          last_command = currentTime;
         }
       }
       else{ //ignore subsequent commands
-        DEBUG_PRINT("Im NOT unknown drone: MOTION COMMAND [TAG_1] IGNORED\n");
+        DEBUG_PRINT("MOTION COMMAND [TAG_2] IGNORED\n");
       }
-    }
+    } 
 
-    else if(id_inter_ext == 0x72){ // Radio command from Tag B
-      // get the drone's ID
-      uint64_t address = configblockGetRadioAddress(); 
-      uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
-      if (p->data[2] == 0xff || p->data[2] == my_id) 
-        {
-        uint64_t currentTime = usecTimestamp();
-        uint64_t delta = (currentTime-last_command)/1e6;
-        if (delta>5){ //new command (5 seconds)
-          DEBUG_PRINT("state_machine: Received TAG_2 command\n");
-          if (p->data[1]){
-            command_tag = 2;
-            last_command = currentTime;
-          }
+    else if (id_inter_ext == 0x73){
+      if (delta>5){ //new command (5 seconds)
+        DEBUG_PRINT("state_machine: Received TAG_C command\n");
+        if (p->data[1]){
+          command_tag = 3;
+          entered_unknown = true;
+          last_command = currentTime;
         }
-        else{ //ignore subsequent commands
-          DEBUG_PRINT("MOTION COMMAND [TAG_2] IGNORED\n");
-        }
+      }
+      else{ //ignore subsequent commands
+        DEBUG_PRINT("MOTION COMMAND [TAG_C] IGNORED\n");
       }
     }
-    else if(id_inter_ext == 0x73){ // Radio command from Tag C
-      // get the drone's ID
-      uint64_t address = configblockGetRadioAddress(); 
-      uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
-      if (p->data[2] == 0xff || p->data[2] == my_id) 
-        {
-        uint64_t currentTime = usecTimestamp();
-        uint64_t delta = (currentTime-last_command)/1e6;
-        if (delta>5){ //new command (5 seconds)
-          DEBUG_PRINT("state_machine: Received TAG_2 command\n");
-          if (p->data[1]){
-            command_tag = 3;
-            entered_unknown = true;
-            last_command = currentTime;
-          }
-        }
-        else{ //ignore subsequent commands
-          DEBUG_PRINT("MOTION COMMAND [TAG_2] IGNORED\n");
+  } else if (entered_unknown == true){
+    uint64_t currentTime = usecTimestamp();
+    uint64_t delta = (currentTime-last_command)/1e6;
+    if (delta>5){
+      if (id_inter_ext == 0x71){ 
+        if (p->data[1]){
+          DEBUG_PRINT("state_machine: ALREADY INSIDE UNKNOWN - Received TAG_A\n");
+          command_tag = 1;
+          last_command = currentTime;
         }
       }
+      else if (id_inter_ext == 0x72){ 
+        if (p->data[1]){
+          DEBUG_PRINT("state_machine: ALREADY INSIDE UNKNOWN - Received TAG_B\n");
+          command_tag = 1;
+          last_command = currentTime;
+        }
+      }
+      else if (id_inter_ext == 0x73){ 
+          if (p->data[1]){
+            DEBUG_PRINT("state_machine: ALREADY INSIDE UNKNOWN - Received TAG_C\n");
+            command_tag = 1;
+            last_command = currentTime;
+          }
+      }
+    }
+  }
+
     }
     //---------------------------------------------------------------------//
     else{
@@ -927,3 +952,85 @@ LOG_ADD(LOG_UINT8, state, &state)
 LOG_ADD(LOG_UINT8, rssi_inter, &rssi_beacon)
 LOG_ADD(LOG_UINT8, rssi_beacon, &rssi_beacon_filtered)
 LOG_GROUP_STOP(statemach)
+
+
+
+// else if(id_inter_ext == 0x71){ // Radio command from Tag A
+//   // get the drone's ID
+//   // uint64_t address = configblockGetRadioAddress(); 
+//   // uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+//   if (my_id == 4 || my_id== 6||my_id == 8){
+//     DEBUG_PRINT("Group 1 Drone\n");
+//     uint64_t currentTime = usecTimestamp();
+//     uint64_t delta = (currentTime-last_command)/1e6;
+//     if (delta>5){ //new command (5 seconds)
+//       if (p->data[1]){
+//         DEBUG_PRINT("state_machine: Received TAG_1 command [command_tag=1]\n");
+//         command_tag = 1;
+//         last_command = currentTime;
+//       }
+//     }
+//     else{ //ignore subsequent commands
+//       DEBUG_PRINT("MOTION COMMAND [TAG_1] IGNORED\n");
+//     }
+//   } else if (my_id == 5 || my_id== 7||my_id == 9){
+//     DEBUG_PRINT("Group 2 Drone\n");
+//     uint64_t currentTime = usecTimestamp();
+//     uint64_t delta = (currentTime-last_command)/1e6;
+//     if (delta>5){ //new command (5 seconds)
+//       if (p->data[1]){
+//         DEBUG_PRINT("state_machine: Received TAG_1 command [command_tag=3]\n");
+//         command_tag = 3;
+//         last_command = currentTime;
+//       }
+//     }
+//     else{ //ignore subsequent commands
+//       DEBUG_PRINT("MOTION COMMAND [TAG_1] IGNORED\n");
+//     }
+//   }
+//   else{ //ignore subsequent commands
+//     DEBUG_PRINT("Im NOT unknown drone: MOTION COMMAND [TAG_1] IGNORED\n");
+//   }
+// }
+
+// else if(id_inter_ext == 0x72){ // Radio command from Tag B
+//   // get the drone's ID
+//   uint64_t address = configblockGetRadioAddress(); 
+//   uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+//   if (p->data[2] == 0xff || p->data[2] == my_id) 
+//     {
+//     uint64_t currentTime = usecTimestamp();
+//     uint64_t delta = (currentTime-last_command)/1e6;
+//     if (delta>5){ //new command (5 seconds)
+//       DEBUG_PRINT("state_machine: Received TAG_2 command\n");
+//       if (p->data[1]){
+//         command_tag = 2;
+//         last_command = currentTime;
+//       }
+//     }
+//     else{ //ignore subsequent commands
+//       DEBUG_PRINT("MOTION COMMAND [TAG_2] IGNORED\n");
+//     }
+//   }
+// }
+// else if(id_inter_ext == 0x73){ // Radio command from Tag C
+//   // get the drone's ID
+//   uint64_t address = configblockGetRadioAddress(); 
+//   uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+//   if (p->data[2] == 0xff || p->data[2] == my_id) 
+//     {
+//     uint64_t currentTime = usecTimestamp();
+//     uint64_t delta = (currentTime-last_command)/1e6;
+//     if (delta>5){ //new command (5 seconds)
+//       DEBUG_PRINT("state_machine: Received TAG_2 command\n");
+//       if (p->data[1]){
+//         command_tag = 3;
+//         entered_unknown = true;
+//         last_command = currentTime;
+//       }
+//     }
+//     else{ //ignore subsequent commands
+//       DEBUG_PRINT("MOTION COMMAND [TAG_2] IGNORED\n");
+//     }
+//   }
+// }
