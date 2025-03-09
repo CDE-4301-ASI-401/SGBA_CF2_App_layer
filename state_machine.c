@@ -768,57 +768,57 @@ void p2pcallbackHandler(P2PPacket *p)
         }
       }
     }
-    else{
-        rssi_inter = p->rssi;
-        DEBUG_PRINT("state_machine: Received RSSI is %i\n", rssi_inter);
-        memcpy(&rssi_angle_inter_ext, &p->data[1], sizeof(float));
+    // else{
+    //     rssi_inter = p->rssi;
+    //     DEBUG_PRINT("state_machine: Received RSSI is %i\n", rssi_inter);
+    //     memcpy(&rssi_angle_inter_ext, &p->data[1], sizeof(float));
 
-        rssi_array_other_drones[id_inter_ext] = rssi_inter;
-        time_array_other_drones[id_inter_ext] = usecTimestamp();
-        rssi_angle_array_other_drones[id_inter_ext] = rssi_angle_inter_ext;
+    //     rssi_array_other_drones[id_inter_ext] = rssi_inter;
+    //     time_array_other_drones[id_inter_ext] = usecTimestamp();
+    //     rssi_angle_array_other_drones[id_inter_ext] = rssi_angle_inter_ext;
 
-        // //Update filter for drones
-        update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
-
-
-
-
-      //   // FOR DEBUGGING //
-
-      //   // Print medFiltDrones
-      //   int result = update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
-      //   DEBUG_PRINT("For drone %i\n", id_inter_ext);
-      //   for (int i = 0; i < medFiltDrones[id_inter_ext].size; i++)
-      //   {
-      //     float temp = medFiltDrones[id_inter_ext].data[i];
-      //     DEBUG_PRINT("%i ", (int)temp);
-      //   }
-      //   DEBUG_PRINT("state_machine: Median result is %i\n", (int)result);
-
-      //   // Print RSSI checking
-      //   DEBUG_PRINT("Checking RSSI\n");
-      //   float rssi_inter_filtered = 140;
-      //   float rssi_this_id;
-      //   int i;
-      //   uint64_t address = configblockGetRadioAddress();
-      //   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
-      //   for (i = 0; i < my_id; i++) {
-      //     DEBUG_PRINT("For drone %i\n", i);
-      //     if (i % 2 != my_id % 2) {
-      //       rssi_this_id = get_median_filter_f(&medFiltDrones[i]);
-      //       DEBUG_PRINT("rssi_this_id = %d\n", (int)rssi_this_id);
-      //       if (rssi_this_id < rssi_collision_threshold && rssi_this_id > 0) {
-      //         rssi_inter_filtered = rssi_this_id;
-      //         DEBUG_PRINT("BREAK\n");
-      //         break;
-      //       }
-      //     }
-      //   }
-      // DEBUG_PRINT("rssi_inter_filtered = %d\n", (int)rssi_inter_filtered);
+    //     // //Update filter for drones
+    //     update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
 
 
 
-    }
+
+    //   //   // FOR DEBUGGING //
+
+    //   //   // Print medFiltDrones
+    //   //   int result = update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
+    //   //   DEBUG_PRINT("For drone %i\n", id_inter_ext);
+    //   //   for (int i = 0; i < medFiltDrones[id_inter_ext].size; i++)
+    //   //   {
+    //   //     float temp = medFiltDrones[id_inter_ext].data[i];
+    //   //     DEBUG_PRINT("%i ", (int)temp);
+    //   //   }
+    //   //   DEBUG_PRINT("state_machine: Median result is %i\n", (int)result);
+
+    //   //   // Print RSSI checking
+    //   //   DEBUG_PRINT("Checking RSSI\n");
+    //   //   float rssi_inter_filtered = 140;
+    //   //   float rssi_this_id;
+    //   //   int i;
+    //   //   uint64_t address = configblockGetRadioAddress();
+    //   //   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
+    //   //   for (i = 0; i < my_id; i++) {
+    //   //     DEBUG_PRINT("For drone %i\n", i);
+    //   //     if (i % 2 != my_id % 2) {
+    //   //       rssi_this_id = get_median_filter_f(&medFiltDrones[i]);
+    //   //       DEBUG_PRINT("rssi_this_id = %d\n", (int)rssi_this_id);
+    //   //       if (rssi_this_id < rssi_collision_threshold && rssi_this_id > 0) {
+    //   //         rssi_inter_filtered = rssi_this_id;
+    //   //         DEBUG_PRINT("BREAK\n");
+    //   //         break;
+    //   //       }
+    //   //     }
+    //   //   }
+    //   // DEBUG_PRINT("rssi_inter_filtered = %d\n", (int)rssi_inter_filtered);
+
+
+
+    // }
 
 
 
