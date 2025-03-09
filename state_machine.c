@@ -58,7 +58,7 @@ static bool taken_off = false;
 
 
 void p2pcallbackHandler(P2PPacket *p);
-static uint8_t rssi_inter;
+// static uint8_t rssi_inter;
 static uint8_t rssi_inter_filtered;
 static uint8_t rssi_inter_closest;
 
