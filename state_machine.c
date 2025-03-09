@@ -60,7 +60,7 @@ static bool taken_off = false;
 
 
 void p2pcallbackHandler(P2PPacket *p);
-static uint8_t rssi_inter;
+// static uint8_t rssi_inter;
 static uint8_t rssi_inter_filtered;
 static uint8_t rssi_inter_closest;
 
@@ -744,6 +744,7 @@ void p2pcallbackHandler(P2PPacket *p)
          if (p->data[1] == 0 || p->data[1] == 1)
          {
           keep_flying =  p->data[1];
+          DEBUG_PRINT("KEEP FLYING: %d\n", keep_flying);
          }
          
          else if (p->data[1] == 2)
@@ -791,7 +792,7 @@ void p2pcallbackHandler(P2PPacket *p)
     // 2 = Turn left and continue forward
     // 3 = Turn left, go forward, and start SGBA
 
-    else if(id_inter_ext == 0x71 || id_inter_ext == 0x72 || id_inter_ext == 0x73 ){ // Radio command from Tag A,B, or C
+    else if((id_inter_ext == 0x71 || id_inter_ext == 0x72 || id_inter_ext == 0x73) && (p->data[2] == my_id) ){ // Radio command from Tag A,B, or C
       uint64_t currentTime = usecTimestamp();
       uint64_t delta = (currentTime-last_command)/1e6;
       if (entered_unknown == false){
@@ -799,7 +800,7 @@ void p2pcallbackHandler(P2PPacket *p)
         if (id_inter_ext == 0x71){ 
           if (my_id == 4 || my_id== 6||my_id == 8){ // Group A drones
             DEBUG_PRINT("Group 1 Drone\n");
-            if (delta>5){ //new command (5 seconds)
+            if (delta>10){ //new command (5 seconds)
               if (p->data[1]){
                 DEBUG_PRINT("state_machine: Received TAG_1 command [command_tag=1]\n");
                 command_tag = 1;
@@ -812,7 +813,7 @@ void p2pcallbackHandler(P2PPacket *p)
         }
         else if (my_id == 5 || my_id== 7||my_id == 9){ // Group B drones
           DEBUG_PRINT("Group 2 Drone\n");
-          if (delta>5){ //new command (5 seconds)
+          if (delta>10){ //new command (5 seconds)
             if (p->data[1]){
               DEBUG_PRINT("state_machine:  TAG_1 command [command_tag=3]\n");
               command_tag = 3;
@@ -831,7 +832,7 @@ void p2pcallbackHandler(P2PPacket *p)
 
     // Command Tag B
     else if (id_inter_ext == 0x72){
-      if (delta>5){ //new command (5 seconds)
+      if (delta>10){ //new command (5 seconds)
         DEBUG_PRINT("state_machine: Received TAG_2 command\n");
         if (p->data[1]){
           command_tag = 2;
@@ -844,7 +845,7 @@ void p2pcallbackHandler(P2PPacket *p)
     } 
 
     else if (id_inter_ext == 0x73){
-      if (delta>5){ //new command (5 seconds)
+      if (delta>10){ //new command (5 seconds)
         DEBUG_PRINT("state_machine: Received TAG_C command\n");
         if (p->data[1]){
           command_tag = 3;
@@ -856,10 +857,10 @@ void p2pcallbackHandler(P2PPacket *p)
         DEBUG_PRINT("MOTION COMMAND [TAG_C] IGNORED\n");
       }
     }
-  } else if (entered_unknown == true){
+  } else if ((entered_unknown == true) && (p->data[2] == my_id) ){
     uint64_t currentTime = usecTimestamp();
     uint64_t delta = (currentTime-last_command)/1e6;
-    if (delta>5){
+    if (delta>10){
       if (id_inter_ext == 0x71){ 
         if (p->data[1]){
           DEBUG_PRINT("state_machine: ALREADY INSIDE UNKNOWN - Received TAG_A\n");
@@ -886,57 +887,57 @@ void p2pcallbackHandler(P2PPacket *p)
 
     }
     //---------------------------------------------------------------------//
-    else{
-        rssi_inter = p->rssi;
-        DEBUG_PRINT("state_machine: Received RSSI is %i\n", rssi_inter);
-        memcpy(&rssi_angle_inter_ext, &p->data[1], sizeof(float));
+    // else{
+    //     rssi_inter = p->rssi;
+    //     DEBUG_PRINT("state_machine: Received RSSI is %i\n", rssi_inter);
+    //     memcpy(&rssi_angle_inter_ext, &p->data[1], sizeof(float));
 
-        rssi_array_other_drones[id_inter_ext] = rssi_inter;
-        time_array_other_drones[id_inter_ext] = usecTimestamp();
-        rssi_angle_array_other_drones[id_inter_ext] = rssi_angle_inter_ext;
+    //     rssi_array_other_drones[id_inter_ext] = rssi_inter;
+    //     time_array_other_drones[id_inter_ext] = usecTimestamp();
+    //     rssi_angle_array_other_drones[id_inter_ext] = rssi_angle_inter_ext;
 
-        // //Update filter for drones
-        update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
-
-
-
-
-      //   // FOR DEBUGGING //
-
-      //   // Print medFiltDrones
-      //   int result = update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
-      //   DEBUG_PRINT("For drone %i\n", id_inter_ext);
-      //   for (int i = 0; i < medFiltDrones[id_inter_ext].size; i++)
-      //   {
-      //     float temp = medFiltDrones[id_inter_ext].data[i];
-      //     DEBUG_PRINT("%i ", (int)temp);
-      //   }
-      //   DEBUG_PRINT("state_machine: Median result is %i\n", (int)result);
-
-      //   // Print RSSI checking
-      //   DEBUG_PRINT("Checking RSSI\n");
-      //   float rssi_inter_filtered = 140;
-      //   float rssi_this_id;
-      //   int i;
-      //   uint64_t address = configblockGetRadioAddress();
-      //   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
-      //   for (i = 0; i < my_id; i++) {
-      //     DEBUG_PRINT("For drone %i\n", i);
-      //     if (i % 2 != my_id % 2) {
-      //       rssi_this_id = get_median_filter_f(&medFiltDrones[i]);
-      //       DEBUG_PRINT("rssi_this_id = %d\n", (int)rssi_this_id);
-      //       if (rssi_this_id < rssi_collision_threshold && rssi_this_id > 0) {
-      //         rssi_inter_filtered = rssi_this_id;
-      //         DEBUG_PRINT("BREAK\n");
-      //         break;
-      //       }
-      //     }
-      //   }
-      // DEBUG_PRINT("rssi_inter_filtered = %d\n", (int)rssi_inter_filtered);
+    //     // //Update filter for drones
+    //     update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
 
 
 
-    }
+
+    //   //   // FOR DEBUGGING //
+
+    //   //   // Print medFiltDrones
+    //   //   int result = update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
+    //   //   DEBUG_PRINT("For drone %i\n", id_inter_ext);
+    //   //   for (int i = 0; i < medFiltDrones[id_inter_ext].size; i++)
+    //   //   {
+    //   //     float temp = medFiltDrones[id_inter_ext].data[i];
+    //   //     DEBUG_PRINT("%i ", (int)temp);
+    //   //   }
+    //   //   DEBUG_PRINT("state_machine: Median result is %i\n", (int)result);
+
+    //   //   // Print RSSI checking
+    //   //   DEBUG_PRINT("Checking RSSI\n");
+    //   //   float rssi_inter_filtered = 140;
+    //   //   float rssi_this_id;
+    //   //   int i;
+    //   //   uint64_t address = configblockGetRadioAddress();
+    //   //   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
+    //   //   for (i = 0; i < my_id; i++) {
+    //   //     DEBUG_PRINT("For drone %i\n", i);
+    //   //     if (i % 2 != my_id % 2) {
+    //   //       rssi_this_id = get_median_filter_f(&medFiltDrones[i]);
+    //   //       DEBUG_PRINT("rssi_this_id = %d\n", (int)rssi_this_id);
+    //   //       if (rssi_this_id < rssi_collision_threshold && rssi_this_id > 0) {
+    //   //         rssi_inter_filtered = rssi_this_id;
+    //   //         DEBUG_PRINT("BREAK\n");
+    //   //         break;
+    //   //       }
+    //   //     }
+    //   //   }
+    //   // DEBUG_PRINT("rssi_inter_filtered = %d\n", (int)rssi_inter_filtered);
+
+
+
+    // }
 
 
 

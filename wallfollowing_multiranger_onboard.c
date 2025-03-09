@@ -59,7 +59,7 @@ static float wraptopi(float number)
 static void commandTurn(float *vel_x, float *vel_w, float ref_rate)
 {
   *vel_x = 0.0;
-  *vel_w = direction * ref_rate;
+  *vel_w = direction * (ref_rate);
 
 }
 

@@ -290,6 +290,10 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
         wanted_angle += wraptopi(3*(float)M_PI/4);
         wanted_angle_dir = wraptopi(current_heading - wanted_angle);
         state = transition(2);
+
+        // wanted_angle += wraptopi(M_PI + (M_PI / 2.0f)); // Reverse + 90° turn)
+        // wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+        // state = transition(2);
       }
     }
     //---------------------------------------------------------------------------------------------------------------------------- //
@@ -393,6 +397,10 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
       wanted_angle += wraptopi(3*(float)M_PI/4);
       wanted_angle_dir = wraptopi(current_heading - wanted_angle);
       state = transition(2);
+
+        // wanted_angle += wraptopi(M_PI + (M_PI / 2.0f)); // Reverse + 90° turn)
+        // wanted_angle_dir = wraptopi(current_heading - wanted_angle);
+        // state = transition(2);
     }
   }
     //------------------------------------------------------------------------------------------------------------------------------
@@ -589,8 +597,8 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
       float current_time = usecTimestamp() / 1e6;
       if (current_time - state_start_time >= 1.5f/max_speed) { //s = d/t ; t = 0.8[m]/max_speed
         DEBUG_PRINT("Command_Tag_3: Movements completed (Going to state 2, rotating to goal)...\n");
-        static float heading[6] = {135.0f, 45.0f, 180.0f,  90.0f, -135.0f, 135.0f};
-        
+        // static float heading[6] = {135.0f, 45.0f, 180.0f,  90.0f, -135.0f, 135.0f};
+        static float heading[6] = {120.0f, 30.0f, 180.0f,  90.0f, -120.0f, 120.0f};
         // Redefine SGBA parameters 
         if (my_id==4 || my_id==6 || my_id==8) {
           DEBUG_PRINT("Initialize SGBA group B drones\n");
@@ -599,7 +607,7 @@ int SGBA_controller(float *vel_x, float *vel_y, float *vel_w, float *rssi_angle,
           local_direction = -1; // LEFT-WF = -1 
           wanted_angle_dir = wraptopi(current_heading - wanted_angle);
           entered_unknown = true;
-        } else {
+        } else { // drone 5,7,9
           DEBUG_PRINT("Initialize SGBA group A drones\n");
           ref_distance_from_wall = drone_dist_from_wall_2; 
           wanted_angle = deg2rad(heading[my_id-4]);
