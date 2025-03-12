@@ -74,7 +74,7 @@ int pillar_controller(float *vel_x, float *vel_y, float *vel_w,
     // Initialize static variables
     static bool firstRun = true;
     static int state = 1;
-    static int turnDirection = 1; // 1 = left, -1 = right
+    static int turnDirection = -1; // 1 = left, -1 = right
     static float forwardHeading = 0; // heading of forward direction
     static float targetHeading = 0; // target heading when turn required
     static float zigzagOffset = 0; // offset for zigzagging
