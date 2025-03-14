@@ -800,7 +800,7 @@ void p2pcallbackHandler(P2PPacket *p)
         if (id_inter_ext == 0x71){ 
           if (my_id == 4 || my_id== 6||my_id == 8){ // Group A drones
             DEBUG_PRINT("Group 1 Drone\n");
-            if (delta>10){ //new command (5 seconds)
+            if (delta>3){ //new command (5 seconds)
               if (p->data[1]){
                 DEBUG_PRINT("state_machine: Received TAG_1 command [command_tag=1]\n");
                 command_tag = 1;
@@ -813,7 +813,7 @@ void p2pcallbackHandler(P2PPacket *p)
         }
         else if (my_id == 5 || my_id== 7||my_id == 9){ // Group B drones
           DEBUG_PRINT("Group 2 Drone\n");
-          if (delta>10){ //new command (5 seconds)
+          if (delta>3){ //new command (5 seconds)
             if (p->data[1]){
               DEBUG_PRINT("state_machine:  TAG_1 command [command_tag=3]\n");
               command_tag = 3;
@@ -832,7 +832,7 @@ void p2pcallbackHandler(P2PPacket *p)
 
     // Command Tag B
     else if (id_inter_ext == 0x72){
-      if (delta>10){ //new command (5 seconds)
+      if (delta>3){ //new command (5 seconds)
         DEBUG_PRINT("state_machine: Received TAG_2 command\n");
         if (p->data[1]){
           command_tag = 2;
@@ -845,7 +845,7 @@ void p2pcallbackHandler(P2PPacket *p)
     } 
 
     else if (id_inter_ext == 0x73){
-      if (delta>10){ //new command (5 seconds)
+      if (delta>3){ //new command (5 seconds)
         DEBUG_PRINT("state_machine: Received TAG_C command\n");
         if (p->data[1]){
           command_tag = 3;
@@ -860,7 +860,7 @@ void p2pcallbackHandler(P2PPacket *p)
   } else if ((entered_unknown == true) && (p->data[2] == my_id) ){
     uint64_t currentTime = usecTimestamp();
     uint64_t delta = (currentTime-last_command)/1e6;
-    if (delta>10){
+    if (delta>5){
       if (id_inter_ext == 0x71){ 
         if (p->data[1]){
           DEBUG_PRINT("state_machine: ALREADY INSIDE UNKNOWN - Received TAG_A\n");
