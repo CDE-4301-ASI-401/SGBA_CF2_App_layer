@@ -534,6 +534,9 @@
             uint8_t my_id_dec = my_id;
             my_id_dec = my_id - 6;
             DEBUG_PRINT("id = %i\n", my_id);
+            if (my_id == 32){
+              my_id_dec = 20;
+            }
 
            DEBUG_PRINT("id = %i\n", my_id_dec);
            if (my_id_dec==20){
