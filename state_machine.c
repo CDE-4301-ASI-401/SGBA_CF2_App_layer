@@ -58,10 +58,10 @@ static bool taken_off = false;
 
 
 void p2pcallbackHandler(P2PPacket *p);
-static uint8_t rssi_inter;
+// static uint8_t rssi_inter;
 static uint8_t rssi_inter_filtered;
 static uint8_t rssi_inter_closest;
-///////
+
 static bool command_reverse = false;
 
 float rssi_angle_inter_ext;
@@ -221,9 +221,9 @@ void appMain(void *param)
   p_reply.size=5;
   //DEBUG_PRINT("appMain");
 
-#if METHOD!=1
-  static uint64_t radioSendBroadcastTime=0;
-#endif
+// #if METHOD!=1
+//   static uint64_t radioSendBroadcastTime=0;
+// #endif
 
   static uint64_t takeoffdelaytime = 0;
 
@@ -539,12 +539,8 @@ bool priority = true;
           // float angle_interval = (180.0f / (number_of_angles-1));
 
           uint8_t my_id_dec = my_id;
-          if (my_id > 9) {
-            my_id_dec = my_id - 6;
-          } else if (my_id > 19) {
-            my_id_dec = my_id - 12;
-          } 
-          DEBUG_PRINT("id = %i\n", my_id_dec);
+          my_id_dec = my_id - 6;
+          DEBUG_PRINT("id = %i\n", my_id);
 
           // Testing
           // float heading = -90.0f + angle_interval * (my_id_dec % number_of_angles);
@@ -565,11 +561,14 @@ bool priority = true;
 
           static float heading = 0.0f;
           // static float heading[15] = { -69.0f, -48.0f, -27.0f, -6.0f, 15.0f, 36.0f, 57.0f, 78.0f, -66.0f, -42.0f, -18.0f, 6.0f, 30.0f, 54.0f, 78.0f};
-          DEBUG_PRINT("heading = %.2f\n", (double)heading);
-          if (my_id_dec % 2 == 1) {
-            init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1);
+          // DEBUG_PRINT("heading = %.2f\n", (double)heading);
+          //Drone 12,13,14 Left-WF; Drone 15,16,17 Right-WF; Drone 18,19 Left-WF
+          // FOR DEMO 1 REPLACE 13 WITH 7, REPLACE 17 WITH 6
+          DEBUG_PRINT("IM DRONE %d\n", my_id_dec);
+          if (my_id_dec==12 || my_id_dec==13 || my_id_dec==14 || my_id_dec==18 || my_id_dec==19  ) {
+            init_SGBA_controller(drone_dist_from_wall_1, drone_speed, heading, -1); //LEFT-WF = -1
           } else {
-            init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1);
+            init_SGBA_controller(drone_dist_from_wall_2, drone_speed, heading, 1); //RIGHT-WF = 1
           }
           
 
@@ -701,11 +700,11 @@ bool priority = true;
       is_flying = false;
     }
 
-    if ((usecTimestamp() >= radioSendBroadcastTime + 1000*500) && (is_flying == true)) {
-        radiolinkSendP2PPacketBroadcast(&p_reply);
-        radioSendBroadcastTime = usecTimestamp();
-        // DEBUG_PRINT("state_machine: Broadcasting RSSI\n");
-    }
+    // if ((usecTimestamp() >= radioSendBroadcastTime + 1000*500) && (is_flying == true)) {
+    //     radiolinkSendP2PPacketBroadcast(&p_reply);
+    //     radioSendBroadcastTime = usecTimestamp();
+    //     DEBUG_PRINT("state_machine: Broadcasting RSSI\n");
+    // }
 
 #endif
     commanderSetSetpoint(&setpoint_BG, STATE_MACHINE_COMMANDER_PRI);
@@ -753,69 +752,74 @@ void p2pcallbackHandler(P2PPacket *p)
 
     }
     else if(id_inter_ext == 0x70){
-      uint64_t currentTime = usecTimestamp();
-      uint64_t delta = currentTime-last_command;
-      if (delta>500000){ //new command (5 seconds)
-        DEBUG_PRINT("state_machine: Received reverse motion command\n");
-        command_reverse = p->data[1];
-        last_command = currentTime;
+      // get the drone's ID
+      uint64_t address = configblockGetRadioAddress(); 
+      uint8_t my_id =(uint8_t)((address) & 0x00000000ff); 
+      if (p->data[2] == 0xff || p->data[2] == my_id) 
+        {
+        uint64_t currentTime = usecTimestamp();
+        uint64_t delta = currentTime-last_command;
+        if (delta>2000000){ //new command (5 seconds)
+          DEBUG_PRINT("state_machine: Received reverse motion command\n");
+          command_reverse = p->data[1];
+          last_command = currentTime;
+        }
+        else{ //ignore subsequent commands
+          DEBUG_PRINT("MOTION COMMAND IGNORED\n");
+        }
       }
-      else{ //ignore subsequent commands
-        DEBUG_PRINT("MOTION COMMAND IGNORED\n");
-      }
-      
     }
-    else{
-        rssi_inter = p->rssi;
-        DEBUG_PRINT("state_machine: Received RSSI is %i\n", rssi_inter);
-        memcpy(&rssi_angle_inter_ext, &p->data[1], sizeof(float));
+    // else{
+    //     rssi_inter = p->rssi;
+    //     DEBUG_PRINT("state_machine: Received RSSI is %i\n", rssi_inter);
+    //     memcpy(&rssi_angle_inter_ext, &p->data[1], sizeof(float));
 
-        rssi_array_other_drones[id_inter_ext] = rssi_inter;
-        time_array_other_drones[id_inter_ext] = usecTimestamp();
-        rssi_angle_array_other_drones[id_inter_ext] = rssi_angle_inter_ext;
+    //     rssi_array_other_drones[id_inter_ext] = rssi_inter;
+    //     time_array_other_drones[id_inter_ext] = usecTimestamp();
+    //     rssi_angle_array_other_drones[id_inter_ext] = rssi_angle_inter_ext;
 
-        // //Update filter for drones
-        update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
-
-
-
-
-      //   // FOR DEBUGGING //
-
-      //   // Print medFiltDrones
-      //   int result = update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
-      //   DEBUG_PRINT("For drone %i\n", id_inter_ext);
-      //   for (int i = 0; i < medFiltDrones[id_inter_ext].size; i++)
-      //   {
-      //     float temp = medFiltDrones[id_inter_ext].data[i];
-      //     DEBUG_PRINT("%i ", (int)temp);
-      //   }
-      //   DEBUG_PRINT("state_machine: Median result is %i\n", (int)result);
-
-      //   // Print RSSI checking
-      //   DEBUG_PRINT("Checking RSSI\n");
-      //   float rssi_inter_filtered = 140;
-      //   float rssi_this_id;
-      //   int i;
-      //   uint64_t address = configblockGetRadioAddress();
-      //   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
-      //   for (i = 0; i < my_id; i++) {
-      //     DEBUG_PRINT("For drone %i\n", i);
-      //     if (i % 2 != my_id % 2) {
-      //       rssi_this_id = get_median_filter_f(&medFiltDrones[i]);
-      //       DEBUG_PRINT("rssi_this_id = %d\n", (int)rssi_this_id);
-      //       if (rssi_this_id < rssi_collision_threshold && rssi_this_id > 0) {
-      //         rssi_inter_filtered = rssi_this_id;
-      //         DEBUG_PRINT("BREAK\n");
-      //         break;
-      //       }
-      //     }
-      //   }
-      // DEBUG_PRINT("rssi_inter_filtered = %d\n", (int)rssi_inter_filtered);
+    //     // //Update filter for drones
+    //     update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
 
 
 
-    }
+
+    //   //   // FOR DEBUGGING //
+
+    //   //   // Print medFiltDrones
+    //   //   int result = update_median_filter_f(&medFiltDrones[id_inter_ext], (float)rssi_inter);
+    //   //   DEBUG_PRINT("For drone %i\n", id_inter_ext);
+    //   //   for (int i = 0; i < medFiltDrones[id_inter_ext].size; i++)
+    //   //   {
+    //   //     float temp = medFiltDrones[id_inter_ext].data[i];
+    //   //     DEBUG_PRINT("%i ", (int)temp);
+    //   //   }
+    //   //   DEBUG_PRINT("state_machine: Median result is %i\n", (int)result);
+
+    //   //   // Print RSSI checking
+    //   //   DEBUG_PRINT("Checking RSSI\n");
+    //   //   float rssi_inter_filtered = 140;
+    //   //   float rssi_this_id;
+    //   //   int i;
+    //   //   uint64_t address = configblockGetRadioAddress();
+    //   //   uint8_t my_id =(uint8_t)((address) & 0x00000000ff);
+    //   //   for (i = 0; i < my_id; i++) {
+    //   //     DEBUG_PRINT("For drone %i\n", i);
+    //   //     if (i % 2 != my_id % 2) {
+    //   //       rssi_this_id = get_median_filter_f(&medFiltDrones[i]);
+    //   //       DEBUG_PRINT("rssi_this_id = %d\n", (int)rssi_this_id);
+    //   //       if (rssi_this_id < rssi_collision_threshold && rssi_this_id > 0) {
+    //   //         rssi_inter_filtered = rssi_this_id;
+    //   //         DEBUG_PRINT("BREAK\n");
+    //   //         break;
+    //   //       }
+    //   //     }
+    //   //   }
+    //   // DEBUG_PRINT("rssi_inter_filtered = %d\n", (int)rssi_inter_filtered);
+
+
+
+    // }
 
 
 
